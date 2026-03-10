@@ -17,7 +17,7 @@
 Persistent
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
-global g_version      := "1.1.0"
+global g_version      := "1.2.0"
 global g_hotkey       := "^!c"   ; Ctrl + Alt + C  — change to whatever you like
 global g_settingsPath := EnvGet("LOCALAPPDATA") "\Microsoft\PowerToys\MouseWithoutBorders\settings.json"
 
@@ -29,16 +29,35 @@ global g_powerToysExe := EnvGet("LOCALAPPDATA") "\PowerToys\PowerToys.exe"
 global g_icoOn  := A_ScriptDir "\on.ico"
 global g_icoOff := A_ScriptDir "\off.ico"
 
+; P2-03: Set true to show a confirmation prompt before each toggle
+global g_confirmToggle := false
+
+; P2-01: Path for the startup shortcut
+global g_startupShortcut := A_Startup "\MWBToggle.lnk"
+
 ; ── TRAY MENU ────────────────────────────────────────────────────────────────
-; FIX: hotkey label is now added BEFORE the separator so it sits logically
-; under the toggle item, not orphaned below Exit.
 hotkeyLabel := "Hotkey: " HotkeyToReadable(g_hotkey)
 A_TrayMenu.Delete()
 A_TrayMenu.Add("Toggle MWB Clipboard/Files", (*) => DoToggle())
 A_TrayMenu.Add(hotkeyLabel, (*) => 0)
 A_TrayMenu.Disable(hotkeyLabel)
 A_TrayMenu.Add()
+
+; P2-04: Pause sharing submenu
+pauseMenu := Menu()
+pauseMenu.Add("5 minutes",  (*) => PauseSharing(5))
+pauseMenu.Add("15 minutes", (*) => PauseSharing(15))
+pauseMenu.Add("30 minutes", (*) => PauseSharing(30))
+A_TrayMenu.Add("Pause Sharing", pauseMenu)
+
+; P2-01: Run at Startup toggle
+A_TrayMenu.Add("Run at Startup", (*) => ToggleStartup())
+if FileExist(g_startupShortcut)
+    A_TrayMenu.Check("Run at Startup")
+
+A_TrayMenu.Add()
 A_TrayMenu.Add("Open PowerToys",  (*) => OpenPowerToys())
+A_TrayMenu.Add("About",           (*) => ShowAbout())
 A_TrayMenu.Add("Exit",            (*) => ExitApp())
 A_TrayMenu.Default    := "Toggle MWB Clipboard/Files"
 A_TrayMenu.ClickCount := 1
@@ -55,8 +74,8 @@ SetTimer(SyncTray, 5000)
 ; ║  Core                                                                    ║
 ; ╚══════════════════════════════════════════════════════════════════════════╝
 
-DoToggle() {
-    global g_settingsPath
+DoToggle(confirm := true) {
+    global g_settingsPath, g_confirmToggle
 
     ; FIX: warn if Mouse Without Borders isn't actually running — the file
     ; write would succeed but MWB wouldn't pick up the change.
@@ -79,6 +98,13 @@ DoToggle() {
     } else {
         MsgBox("Could not find ShareClipboard in settings.json.`n`nMake sure Mouse Without Borders has been run at least once.", "MWBToggle", "IconX")
         return
+    }
+
+    ; P2-03: Optional confirmation before toggling
+    if g_confirmToggle && confirm {
+        prompt := "Turn clipboard/file sharing " (currentlyOn ? "OFF" : "ON") "?"
+        if MsgBox(prompt, "MWBToggle", "YesNo") != "Yes"
+            return
     }
 
     ; Flip both values
@@ -154,6 +180,61 @@ OpenPowerToys() {
             MsgBox("Could not find PowerToys.`n`nExpected:`n" g_powerToysExe "`n`nYou can open it manually from the Start menu.", "MWBToggle", "Icon!")
         }
     }
+}
+
+; P2-01: Toggle startup shortcut
+ToggleStartup() {
+    global g_startupShortcut
+    if FileExist(g_startupShortcut) {
+        FileDelete(g_startupShortcut)
+        A_TrayMenu.Uncheck("Run at Startup")
+        TrayTip("MWBToggle", "Removed from startup.", 2)
+    } else {
+        shell := ComObject("WScript.Shell")
+        shortcut := shell.CreateShortcut(g_startupShortcut)
+        shortcut.TargetPath := A_ScriptFullPath
+        shortcut.WorkingDirectory := A_ScriptDir
+        shortcut.Description := "MWBToggle"
+        shortcut.Save()
+        A_TrayMenu.Check("Run at Startup")
+        TrayTip("MWBToggle", "Added to startup.", 2)
+    }
+}
+
+; P2-02: About dialog
+ShowAbout() {
+    global g_version, g_hotkey
+    MsgBox(
+        "MWBToggle v" g_version "`n`n"
+        "Toggle Mouse Without Borders clipboard and file sharing.`n`n"
+        "Hotkey: " HotkeyToReadable(g_hotkey),
+        "About MWBToggle"
+    )
+}
+
+; P2-04: Pause sharing for a set number of minutes
+PauseSharing(minutes) {
+    global g_settingsPath
+    if !FileExist(g_settingsPath)
+        return
+    json := FileRead(g_settingsPath, "UTF-8")
+    ; Only toggle if currently ON
+    if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*true')
+        DoToggle(false)
+    SetTimer(ResumeSharing, -(minutes * 60000))
+    TrayTip("MWBToggle", "Sharing paused for " minutes " minutes.", 2)
+}
+
+; P2-04: Resume sharing after pause expires
+ResumeSharing() {
+    global g_settingsPath
+    if !FileExist(g_settingsPath)
+        return
+    json := FileRead(g_settingsPath, "UTF-8")
+    ; Only toggle if currently OFF
+    if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*false')
+        DoToggle(false)
+    TrayTip("MWBToggle", "Sharing resumed.", 2)
 }
 
 ; ╔══════════════════════════════════════════════════════════════════════════╗
