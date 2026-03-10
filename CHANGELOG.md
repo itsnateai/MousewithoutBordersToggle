@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.0] — 2026-03-09
+
+### Added
+- **INI config file support** — read hotkey, ConfirmToggle, and SoundFeedback from `MWBToggle.ini` (falls back to defaults if file missing)
+- **Sound feedback option** — optional audible beep on toggle (high tone for ON, low tone for OFF), enabled via config
+
 ## [1.2.0] — 2026-03-09
 
 ### Added
