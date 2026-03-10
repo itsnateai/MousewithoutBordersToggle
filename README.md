@@ -33,6 +33,34 @@ global g_hotkey := "^!c"   ; Ctrl + Alt + C
 
 Modifier symbols: `#` = Win, `^` = Ctrl, `!` = Alt, `+` = Shift
 
+## Compiling to .exe
+
+To distribute without requiring AutoHotkey installed:
+
+1. Install [AutoHotkey v2](https://www.autohotkey.com/)
+2. Run the compiler:
+   ```
+   Ahk2Exe.exe /in MWBToggle.ahk /out MWBToggle.exe /compress 0
+   ```
+   Use `/compress 0` to avoid Windows Defender false positives.
+3. Place `on.ico` and `off.ico` in the same folder as `MWBToggle.exe`
+
+## Troubleshooting
+
+**"Mouse Without Borders doesn't appear to be running"**
+- Make sure PowerToys is running and Mouse Without Borders is enabled in PowerToys settings.
+
+**"Settings file not found"**
+- Mouse Without Borders must be run at least once to create its settings file.
+- Default path: `%LOCALAPPDATA%\Microsoft\PowerToys\MouseWithoutBorders\settings.json`
+
+**"Could not write to settings.json"**
+- The file may be locked by MWB. Wait a moment and try again.
+- If persistent, close PowerToys, toggle, then reopen PowerToys.
+
+**Tray icon doesn't update**
+- The icon syncs every 5 seconds. If it seems stuck, right-click the tray icon and select "Toggle" to force a sync.
+
 ## Files
 
 | File | Purpose |
