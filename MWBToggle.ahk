@@ -17,23 +17,20 @@
 Persistent
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
-global g_version      := "1.2.0"
-global g_hotkey       := "^!c"   ; Ctrl + Alt + C  — change to whatever you like
-global g_settingsPath := EnvGet("LOCALAPPDATA") "\Microsoft\PowerToys\MouseWithoutBorders\settings.json"
+global g_version      := "1.3.0"
 
-; PowerToys executable — used for the "Open PowerToys" tray item and
-; the MWB-running check. Adjust if your install location differs.
-global g_powerToysExe := EnvGet("LOCALAPPDATA") "\PowerToys\PowerToys.exe"
-
-; Custom icon paths — place on.ico / off.ico in the same folder as this script
-global g_icoOn  := A_ScriptDir "\on.ico"
-global g_icoOff := A_ScriptDir "\off.ico"
-
-; P2-03: Set true to show a confirmation prompt before each toggle
-global g_confirmToggle := false
-
-; P2-01: Path for the startup shortcut
+; Default values — overridden by MWBToggle.ini if it exists
+global g_hotkey         := "^!c"
+global g_settingsPath   := EnvGet("LOCALAPPDATA") "\Microsoft\PowerToys\MouseWithoutBorders\settings.json"
+global g_powerToysExe   := EnvGet("LOCALAPPDATA") "\PowerToys\PowerToys.exe"
+global g_icoOn          := A_ScriptDir "\on.ico"
+global g_icoOff         := A_ScriptDir "\off.ico"
+global g_confirmToggle  := false
+global g_soundFeedback  := false
 global g_startupShortcut := A_Startup "\MWBToggle.lnk"
+
+; P4-01: Load config from INI file (falls back to defaults above)
+LoadConfig()
 
 ; ── TRAY MENU ────────────────────────────────────────────────────────────────
 hotkeyLabel := "Hotkey: " HotkeyToReadable(g_hotkey)
@@ -142,6 +139,10 @@ DoToggle(confirm := true) {
 
     newState := currentlyOn ? "OFF" : "ON"
     TrayTip("MWBToggle", "Clipboard & File Transfer: " newState, 2)
+
+    ; P4-02: Optional sound feedback — different tones for ON vs OFF
+    if g_soundFeedback
+        SoundBeep(currentlyOn ? 400 : 800, 150)
 }
 
 SyncTray() {
@@ -240,6 +241,23 @@ ResumeSharing() {
 ; ╔══════════════════════════════════════════════════════════════════════════╗
 ; ║  Helpers                                                                 ║
 ; ╚══════════════════════════════════════════════════════════════════════════╝
+
+; P4-01: Read settings from MWBToggle.ini if it exists, otherwise keep defaults
+LoadConfig() {
+    global g_hotkey, g_confirmToggle, g_soundFeedback
+    iniPath := A_ScriptDir "\MWBToggle.ini"
+    if !FileExist(iniPath)
+        return
+    val := IniRead(iniPath, "Settings", "Hotkey", "")
+    if (val != "")
+        g_hotkey := val
+    val := IniRead(iniPath, "Settings", "ConfirmToggle", "")
+    if (val != "")
+        g_confirmToggle := (val = "1" || val = "true")
+    val := IniRead(iniPath, "Settings", "SoundFeedback", "")
+    if (val != "")
+        g_soundFeedback := (val = "1" || val = "true")
+}
 
 ; Translate AHK hotkey symbols into a readable string e.g. "^!c" → "Ctrl + Alt + C"
 ; Uses a prefix-only match so key names like "Numpad+" are never mistaken for Shift.
