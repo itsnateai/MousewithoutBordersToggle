@@ -17,6 +17,7 @@
 Persistent
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
+global g_version      := "1.1.0"
 global g_hotkey       := "^!c"   ; Ctrl + Alt + C  — change to whatever you like
 global g_settingsPath := EnvGet("LOCALAPPDATA") "\Microsoft\PowerToys\MouseWithoutBorders\settings.json"
 
@@ -47,6 +48,8 @@ Hotkey(g_hotkey, (*) => DoToggle())
 
 ; ── INITIAL STATE ─────────────────────────────────────────────────────────────
 SyncTray()
+; P1-01: Periodically sync tray icon in case settings change externally
+SetTimer(SyncTray, 5000)
 
 ; ╔══════════════════════════════════════════════════════════════════════════╗
 ; ║  Core                                                                    ║
@@ -83,8 +86,23 @@ DoToggle() {
     json := RegExReplace(json, '("ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*)(true|false)', "$1" newVal)
     json := RegExReplace(json, '("TransferFile"\s*:\s*\{\s*"value"\s*:\s*)(true|false)',   "$1" newVal)
 
-    ; FIX: guard FileOpen — settings.json may be briefly locked by MWB.
-    f := FileOpen(g_settingsPath, "w", "UTF-8-RAW")
+    ; P1-04: Verify the replacement took effect before writing
+    if !RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*' newVal) {
+        MsgBox("Failed to update ShareClipboard in settings.json — the JSON structure may have changed.`n`nNo changes were written.", "MWBToggle", "IconX")
+        return
+    }
+
+    ; P0-02: Backup before writing in case of crash/power loss
+    FileCopy(g_settingsPath, g_settingsPath ".bak", true)
+
+    ; P0-01: Retry loop — settings.json may be briefly locked by MWB
+    f := false
+    loop 3 {
+        f := FileOpen(g_settingsPath, "w", "UTF-8-RAW")
+        if f
+            break
+        Sleep(200)
+    }
     if !f {
         MsgBox("Could not write to settings.json — the file may be locked by Mouse Without Borders.`n`nPlease try again in a moment.", "MWBToggle", "IconX")
         return
@@ -92,6 +110,7 @@ DoToggle() {
     f.Write(json)
     f.Close()
 
+    ; P1-03: Delay for MWB to detect the file change and reload settings
     Sleep(300)
     SyncTray()
 
@@ -112,13 +131,13 @@ SyncTray() {
             TraySetIcon(g_icoOn)
         else
             TraySetIcon(A_WinDir "\System32\imageres.dll", 101)
-        A_IconTip := "MWB Clipboard/Files: ON"
+        A_IconTip := "MWBToggle v" g_version " — Clipboard/Files: ON"
     } else {
         if FileExist(g_icoOff)
             TraySetIcon(g_icoOff)
         else
             TraySetIcon(A_WinDir "\System32\imageres.dll", 98)
-        A_IconTip := "MWB Clipboard/Files: OFF"
+        A_IconTip := "MWBToggle v" g_version " — Clipboard/Files: OFF"
     }
 }
 
@@ -132,7 +151,7 @@ OpenPowerToys() {
         if FileExist(machinePath) {
             Run(machinePath)
         } else {
-        MsgBox("Could not find PowerToys.`n`nExpected:`n" g_powerToysExe "`n`nYou can open it manually from the Start menu.", "MWBToggle", "Icon!")
+            MsgBox("Could not find PowerToys.`n`nExpected:`n" g_powerToysExe "`n`nYou can open it manually from the Start menu.", "MWBToggle", "Icon!")
         }
     }
 }
