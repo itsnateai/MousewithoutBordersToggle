@@ -17,7 +17,7 @@
 Persistent
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
-global g_version      := "1.3.0"
+global g_version      := "1.4.0"
 
 ; Default values — overridden by MWBToggle.ini if it exists
 global g_hotkey         := "^!c"
@@ -77,7 +77,7 @@ DoToggle(confirm := true) {
     ; FIX: warn if Mouse Without Borders isn't actually running — the file
     ; write would succeed but MWB wouldn't pick up the change.
     if !ProcessExist("PowerToys.MouseWithoutBorders.exe") {
-        TrayTip("MWBToggle", "Mouse Without Borders doesn't appear to be running.", 3)
+        ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000)
         return
     }
 
@@ -138,7 +138,7 @@ DoToggle(confirm := true) {
     SyncTray()
 
     newState := currentlyOn ? "OFF" : "ON"
-    TrayTip("MWBToggle", "Clipboard & File Transfer: " newState, 2)
+    ShowOSD("MWBToggle: Clipboard & File Transfer " newState)
 
     ; P4-02: Optional sound feedback — different tones for ON vs OFF
     if g_soundFeedback
@@ -189,7 +189,7 @@ ToggleStartup() {
     if FileExist(g_startupShortcut) {
         FileDelete(g_startupShortcut)
         A_TrayMenu.Uncheck("Run at Startup")
-        TrayTip("MWBToggle", "Removed from startup.", 2)
+        ShowOSD("MWBToggle: Removed from startup.")
     } else {
         shell := ComObject("WScript.Shell")
         shortcut := shell.CreateShortcut(g_startupShortcut)
@@ -198,7 +198,7 @@ ToggleStartup() {
         shortcut.Description := "MWBToggle"
         shortcut.Save()
         A_TrayMenu.Check("Run at Startup")
-        TrayTip("MWBToggle", "Added to startup.", 2)
+        ShowOSD("MWBToggle: Added to startup.")
     }
 }
 
@@ -223,7 +223,7 @@ PauseSharing(minutes) {
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*true')
         DoToggle(false)
     SetTimer(ResumeSharing, -(minutes * 60000))
-    TrayTip("MWBToggle", "Sharing paused for " minutes " minutes.", 2)
+    ShowOSD("MWBToggle: Sharing paused for " minutes " minutes.")
 }
 
 ; P2-04: Resume sharing after pause expires
@@ -235,12 +235,20 @@ ResumeSharing() {
     ; Only toggle if currently OFF
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*false')
         DoToggle(false)
-    TrayTip("MWBToggle", "Sharing resumed.", 2)
+    ShowOSD("MWBToggle: Sharing resumed.")
 }
 
 ; ╔══════════════════════════════════════════════════════════════════════════╗
 ; ║  Helpers                                                                 ║
 ; ╚══════════════════════════════════════════════════════════════════════════╝
+
+; P4-04: OSD notification — ToolTip at cursor position instead of TrayTip toast.
+;        Visible on whichever monitor the user is working on, no Windows toast spam.
+;        duration: 3000 for info, 5000 for warnings.
+ShowOSD(msg, duration := 3000) {
+    ToolTip(msg)
+    SetTimer(() => ToolTip(), -duration)
+}
 
 ; P4-01: Read settings from MWBToggle.ini if it exists, otherwise keep defaults
 LoadConfig() {

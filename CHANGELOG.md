@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.0] — 2026-03-10
+
+### Changed
+- **Multi-monitor OSD notifications** — replaced all `TrayTip` calls with `ShowOSD()` helper using `ToolTip()` at cursor position. Notifications now appear on whichever monitor the user is working on, eliminating the primary-monitor-only limitation.
+
 ## [1.3.0] — 2026-03-09
 
 ### Added
