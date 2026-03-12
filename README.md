@@ -25,7 +25,7 @@ Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse With
 
 ## Customization
 
-Edit `MWBToggle.ahk` line 20 to change the hotkey:
+Edit `MWBToggle.ahk` line 23 to change the hotkey:
 
 ```ahk
 global g_hotkey := "^!c"   ; Ctrl + Alt + C
@@ -43,7 +43,7 @@ To distribute without requiring AutoHotkey installed:
    Ahk2Exe.exe /in MWBToggle.ahk /out MWBToggle.exe /compress 0
    ```
    Use `/compress 0` to avoid Windows Defender false positives.
-3. Place `on.ico` and `off.ico` in the same folder as `MWBToggle.exe`
+3. Place `on.ico` and `mwb.ico` in the same folder as `MWBToggle.exe`
 
 ## Troubleshooting
 
@@ -67,4 +67,4 @@ To distribute without requiring AutoHotkey installed:
 |------|---------|
 | `MWBToggle.ahk` | Main script |
 | `on.ico` | Tray icon — sharing ON (green) |
-| `off.ico` | Tray icon — sharing OFF (red) |
+| `mwb.ico` | Tray icon — sharing OFF (red) |
