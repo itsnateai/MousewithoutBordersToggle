@@ -9,7 +9,7 @@
 ; ║                                                                          ║
 ; ║  Files (place in the same folder as this script):                       ║
 ; ║    on.ico   — shown when sharing is ON  (falls back to Windows icon)    ║
-; ║    off.ico  — shown when sharing is OFF (falls back to Windows icon)    ║
+; ║    mwb.ico  — shown when sharing is OFF (falls back to Windows icon)    ║
 ; ╚══════════════════════════════════════════════════════════════════════════╝
 
 #Requires AutoHotkey v2.0
@@ -24,7 +24,7 @@ global g_hotkey         := "^!c"
 global g_settingsPath   := EnvGet("LOCALAPPDATA") "\Microsoft\PowerToys\MouseWithoutBorders\settings.json"
 global g_powerToysExe   := EnvGet("LOCALAPPDATA") "\PowerToys\PowerToys.exe"
 global g_icoOn          := A_ScriptDir "\on.ico"
-global g_icoOff         := A_ScriptDir "\off.ico"
+global g_icoOff         := A_ScriptDir "\mwb.ico"
 global g_confirmToggle  := false
 global g_soundFeedback  := false
 global g_startupShortcut := A_Startup "\MWBToggle.lnk"
