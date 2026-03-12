@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.1] — 2026-03-12
+
+### Fixed
+- **OFF state icon** — tray icon for the OFF state now uses `mwb.ico` instead of the previously hardcoded `off.ico` filename, matching the documented file layout.
+
 ## [1.4.0] — 2026-03-10
 
 ### Changed
