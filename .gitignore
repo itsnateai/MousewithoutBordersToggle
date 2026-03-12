@@ -5,15 +5,25 @@
 # Windows
 Thumbs.db
 Desktop.ini
+desktop.ini
 $RECYCLE.BIN/
+.DS_Store
 
 # Task Management
+AUDIT_TASKS.md
 TODO_LIST.md
 SCHEDULED_TASKS.md
+ASSUMPTIONS.md
 
 # IDE / Editor
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
-ASSUMPTIONS.md
+
+# Temp files
+*.tmp
+*.bak
+*.orig
+*.rej
