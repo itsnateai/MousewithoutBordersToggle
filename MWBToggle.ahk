@@ -236,7 +236,10 @@ PauseSharing(minutes) {
     global g_settingsPath
     if !FileExist(g_settingsPath)
         return
-    json := FileRead(g_settingsPath, "UTF-8")
+    try
+        json := FileRead(g_settingsPath, "UTF-8")
+    catch
+        return
     ; Only toggle if currently ON
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*true')
         DoToggle(false)
@@ -249,7 +252,10 @@ ResumeSharing() {
     global g_settingsPath
     if !FileExist(g_settingsPath)
         return
-    json := FileRead(g_settingsPath, "UTF-8")
+    try
+        json := FileRead(g_settingsPath, "UTF-8")
+    catch
+        return
     ; Only toggle if currently OFF
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*false')
         DoToggle(false)
