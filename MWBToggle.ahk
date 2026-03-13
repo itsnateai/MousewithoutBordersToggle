@@ -73,6 +73,10 @@ SyncTray()
 ; P1-01: Periodically sync tray icon in case settings change externally
 SetTimer(SyncTray, 5000)
 
+; P2: Re-register tray icon when Explorer restarts (taskbar re-created)
+global WM_TASKBARCREATED := DllCall("RegisterWindowMessage", "Str", "TaskbarCreated")
+OnMessage(WM_TASKBARCREATED, (*) => SyncTray())
+
 ; ╔══════════════════════════════════════════════════════════════════════════╗
 ; ║  Core                                                                    ║
 ; ╚══════════════════════════════════════════════════════════════════════════╝
