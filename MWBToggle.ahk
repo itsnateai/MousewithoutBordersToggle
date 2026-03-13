@@ -60,7 +60,13 @@ A_TrayMenu.Default    := "Toggle MWB Clipboard/Files"
 A_TrayMenu.ClickCount := 1
 
 ; ── HOTKEY ───────────────────────────────────────────────────────────────────
-Hotkey(g_hotkey, (*) => DoToggle())
+try {
+    Hotkey(g_hotkey, (*) => DoToggle())
+} catch as e {
+    MsgBox("Invalid hotkey: " g_hotkey "`n`nCheck your MWBToggle.ini [Settings] Hotkey value.`n`nFalling back to Ctrl+Alt+C.", "MWBToggle", "Icon!")
+    g_hotkey := "^!c"
+    Hotkey(g_hotkey, (*) => DoToggle())
+}
 
 ; ── INITIAL STATE ─────────────────────────────────────────────────────────────
 SyncTray()
