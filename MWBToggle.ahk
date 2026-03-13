@@ -17,7 +17,7 @@
 Persistent
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
-global g_version      := "1.4.1"
+global g_version      := "1.4.2"
 
 ; Default values — overridden by MWBToggle.ini if it exists
 global g_hotkey         := "^!c"
