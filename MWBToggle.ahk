@@ -86,8 +86,13 @@ DoToggle(confirm := true) {
         return
     }
 
-    ; Read JSON
-    json := FileRead(g_settingsPath, "UTF-8")
+    ; Read JSON — file may be briefly locked by MWB
+    try {
+        json := FileRead(g_settingsPath, "UTF-8")
+    } catch as e {
+        ShowOSD("MWBToggle: Could not read settings.json — file may be locked. Try again.", 5000)
+        return
+    }
 
     ; Detect current ShareClipboard state
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*(true|false)', &m) {
@@ -147,7 +152,10 @@ DoToggle(confirm := true) {
 
 SyncTray() {
     global g_settingsPath, g_icoOn, g_icoOff
-    json := FileExist(g_settingsPath) ? FileRead(g_settingsPath, "UTF-8") : ""
+    try
+        json := FileExist(g_settingsPath) ? FileRead(g_settingsPath, "UTF-8") : ""
+    catch
+        return  ; File locked — skip this sync cycle, retry in 5s
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*(true|false)', &m) {
         on := (m[1] = "true")
     } else {
