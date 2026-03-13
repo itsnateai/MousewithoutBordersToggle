@@ -1,6 +1,7 @@
 # AutoHotkey
 *.exe
 *.log
+MWBToggle.ini
 
 # Windows
 Thumbs.db
