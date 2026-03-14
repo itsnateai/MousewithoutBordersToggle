@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.0] — 2026-03-14
+
+### New Features
+- **About dialog with GitHub button** — replaced plain MsgBox with a proper GUI window showing version, description, hotkey, and a GitHub button that opens the repo
+- **Pause timer checkmark** — the active pause duration (5/15/30 min) now shows a checkmark in the Pause Sharing submenu; clears when the timer expires and sharing resumes
+
+### Settings/GUI
+- **Screenshots** — added tray icon and menu screenshots to README
+
 ## [1.4.2] — 2026-03-13
 
 ### Fixed
