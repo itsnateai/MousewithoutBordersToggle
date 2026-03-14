@@ -16,6 +16,10 @@
 #SingleInstance Force
 Persistent
 
+; ── Embed icons as PE resources so compiled .exe works standalone ────────────
+;@Ahk2Exe-AddResource on.ico, 10
+;@Ahk2Exe-AddResource mwb.ico, 11
+
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
 global g_version      := "1.4.2"
 
@@ -174,12 +178,16 @@ SyncTray() {
     if on {
         if FileExist(g_icoOn)
             TraySetIcon(g_icoOn)
+        else if A_IsCompiled
+            TraySetIcon(A_ScriptFullPath, -10, true)
         else
             TraySetIcon(A_WinDir "\System32\imageres.dll", 101)
         A_IconTip := "MWBToggle v" g_version " — Clipboard/Files: ON"
     } else {
         if FileExist(g_icoOff)
             TraySetIcon(g_icoOff)
+        else if A_IsCompiled
+            TraySetIcon(A_ScriptFullPath, -11, true)
         else
             TraySetIcon(A_WinDir "\System32\imageres.dll", 98)
         A_IconTip := "MWBToggle v" g_version " — Clipboard/Files: OFF"
