@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.2] — 2026-03-13
+
+### Fixed
+- **FileRead error handling** — `DoToggle()` and `SyncTray()` now catch exceptions when `settings.json` is locked by MWB, preventing unhandled crashes
+- **Hotkey validation** — invalid hotkey string from `MWBToggle.ini` no longer crashes on startup; shows warning and falls back to `Ctrl+Alt+C`
+- **Explorer restart recovery** — tray icon re-registers on `TaskbarCreated` message so the icon reappears after Explorer crashes/restarts
+
+### Changed
+- **README** — removed screenshot placeholder text, added full INI config documentation
+- **.gitignore** — added `MWBToggle.ini` (user config should not be committed)
+
 ## [1.4.1] — 2026-03-12
 
 ### Fixed
