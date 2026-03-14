@@ -17,7 +17,7 @@
 Persistent
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
-global g_version      := "1.4.1"
+global g_version      := "1.4.2"
 
 ; Default values — overridden by MWBToggle.ini if it exists
 global g_hotkey         := "^!c"
@@ -60,12 +60,22 @@ A_TrayMenu.Default    := "Toggle MWB Clipboard/Files"
 A_TrayMenu.ClickCount := 1
 
 ; ── HOTKEY ───────────────────────────────────────────────────────────────────
-Hotkey(g_hotkey, (*) => DoToggle())
+try {
+    Hotkey(g_hotkey, (*) => DoToggle())
+} catch as e {
+    MsgBox("Invalid hotkey: " g_hotkey "`n`nCheck your MWBToggle.ini [Settings] Hotkey value.`n`nFalling back to Ctrl+Alt+C.", "MWBToggle", "Icon!")
+    g_hotkey := "^!c"
+    Hotkey(g_hotkey, (*) => DoToggle())
+}
 
 ; ── INITIAL STATE ─────────────────────────────────────────────────────────────
 SyncTray()
 ; P1-01: Periodically sync tray icon in case settings change externally
 SetTimer(SyncTray, 5000)
+
+; P2: Re-register tray icon when Explorer restarts (taskbar re-created)
+global WM_TASKBARCREATED := DllCall("RegisterWindowMessage", "Str", "TaskbarCreated")
+OnMessage(WM_TASKBARCREATED, (*) => SyncTray())
 
 ; ╔══════════════════════════════════════════════════════════════════════════╗
 ; ║  Core                                                                    ║
@@ -86,8 +96,13 @@ DoToggle(confirm := true) {
         return
     }
 
-    ; Read JSON
-    json := FileRead(g_settingsPath, "UTF-8")
+    ; Read JSON — file may be briefly locked by MWB
+    try {
+        json := FileRead(g_settingsPath, "UTF-8")
+    } catch as e {
+        ShowOSD("MWBToggle: Could not read settings.json — file may be locked. Try again.", 5000)
+        return
+    }
 
     ; Detect current ShareClipboard state
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*(true|false)', &m) {
@@ -147,7 +162,10 @@ DoToggle(confirm := true) {
 
 SyncTray() {
     global g_settingsPath, g_icoOn, g_icoOff
-    json := FileExist(g_settingsPath) ? FileRead(g_settingsPath, "UTF-8") : ""
+    try
+        json := FileExist(g_settingsPath) ? FileRead(g_settingsPath, "UTF-8") : ""
+    catch
+        return  ; File locked — skip this sync cycle, retry in 5s
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*(true|false)', &m) {
         on := (m[1] = "true")
     } else {
@@ -218,7 +236,10 @@ PauseSharing(minutes) {
     global g_settingsPath
     if !FileExist(g_settingsPath)
         return
-    json := FileRead(g_settingsPath, "UTF-8")
+    try
+        json := FileRead(g_settingsPath, "UTF-8")
+    catch
+        return
     ; Only toggle if currently ON
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*true')
         DoToggle(false)
@@ -231,7 +252,10 @@ ResumeSharing() {
     global g_settingsPath
     if !FileExist(g_settingsPath)
         return
-    json := FileRead(g_settingsPath, "UTF-8")
+    try
+        json := FileRead(g_settingsPath, "UTF-8")
+    catch
+        return
     ; Only toggle if currently OFF
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*false')
         DoToggle(false)

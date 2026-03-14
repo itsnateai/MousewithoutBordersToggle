@@ -27,8 +27,6 @@ Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse With
 
 **Settings file:** Optional `MWBToggle.ini` in the same folder as the script. Configures hotkey, confirmation prompt, and sound feedback.
 
-> Replace this section with real screenshots when available.
-
 ## Requirements
 
 - Windows 10/11
@@ -43,13 +41,22 @@ Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse With
 
 ## Customization
 
-Edit `MWBToggle.ahk` line 23 to change the hotkey:
+Create a `MWBToggle.ini` file in the same folder as the script to override defaults without editing the script:
 
-```ahk
-global g_hotkey := "^!c"   ; Ctrl + Alt + C
+```ini
+[Settings]
+Hotkey=^!c
+ConfirmToggle=false
+SoundFeedback=false
 ```
 
-Modifier symbols: `#` = Win, `^` = Ctrl, `!` = Alt, `+` = Shift
+| Key | Default | Description |
+|-----|---------|-------------|
+| `Hotkey` | `^!c` | AHK hotkey string (`#` Win, `^` Ctrl, `!` Alt, `+` Shift) |
+| `ConfirmToggle` | `false` | Prompt before each toggle |
+| `SoundFeedback` | `false` | Beep on toggle (high tone ON, low tone OFF) |
+
+If no INI file exists, the script uses the defaults above. You can also edit the hotkey directly in `MWBToggle.ahk` line 23.
 
 ## Compiling to .exe
 
