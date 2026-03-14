@@ -21,7 +21,7 @@ Persistent
 ;@Ahk2Exe-AddResource mwb.ico, 11
 
 ; ── CONFIGURATION ────────────────────────────────────────────────────────────
-global g_version      := "1.4.2"
+global g_version      := "1.5.0"
 
 ; Default values — overridden by MWBToggle.ini if it exists
 global g_hotkey         := "^!c"
@@ -32,6 +32,8 @@ global g_icoOff         := A_ScriptDir "\mwb.ico"
 global g_confirmToggle  := false
 global g_soundFeedback  := false
 global g_startupShortcut := A_Startup "\MWBToggle.lnk"
+global g_pauseMenu       := ""
+global g_aboutGui        := 0
 
 ; P4-01: Load config from INI file (falls back to defaults above)
 LoadConfig()
@@ -45,11 +47,11 @@ A_TrayMenu.Disable(hotkeyLabel)
 A_TrayMenu.Add()
 
 ; P2-04: Pause sharing submenu
-pauseMenu := Menu()
-pauseMenu.Add("5 minutes",  (*) => PauseSharing(5))
-pauseMenu.Add("15 minutes", (*) => PauseSharing(15))
-pauseMenu.Add("30 minutes", (*) => PauseSharing(30))
-A_TrayMenu.Add("Pause Sharing", pauseMenu)
+g_pauseMenu := Menu()
+g_pauseMenu.Add("5 minutes",  (*) => PauseSharing(5))
+g_pauseMenu.Add("15 minutes", (*) => PauseSharing(15))
+g_pauseMenu.Add("30 minutes", (*) => PauseSharing(30))
+A_TrayMenu.Add("Pause Sharing", g_pauseMenu)
 
 ; P2-01: Run at Startup toggle
 A_TrayMenu.Add("Run at Startup", (*) => ToggleStartup())
@@ -228,20 +230,31 @@ ToggleStartup() {
     }
 }
 
-; P2-02: About dialog
+; P2-02: About dialog — GUI with GitHub button
 ShowAbout() {
-    global g_version, g_hotkey
-    MsgBox(
-        "MWBToggle v" g_version "`n`n"
-        "Toggle Mouse Without Borders clipboard and file sharing.`n`n"
-        "Hotkey: " HotkeyToReadable(g_hotkey),
-        "About MWBToggle"
-    )
+    global g_version, g_hotkey, g_aboutGui
+    if g_aboutGui {
+        try g_aboutGui.Show()
+        return
+    }
+    aboutW := 300
+    ab := Gui("+AlwaysOnTop", "MWBToggle v" g_version " — About")
+    ab.SetFont("s11 bold")
+    ab.Add("Text", "w" (aboutW - 20) " Center", "MWBToggle v" g_version)
+    ab.SetFont("s9 norm")
+    ab.Add("Text", "w" (aboutW - 20) " Center", "Toggle Mouse Without Borders`nclipboard and file sharing.")
+    ab.Add("Text", "w" (aboutW - 20) " Center", "Hotkey: " HotkeyToReadable(g_hotkey))
+    ab.SetFont("s9")
+    ab.Add("Button", "w90 Section", "GitHub").OnEvent("Click", (*) => Run("https://github.com/itsnateai/MousewithoutBordersToggle"))
+    ab.Add("Button", "w90 ys", "Close").OnEvent("Click", (*) => ab.Hide())
+    g_aboutGui := ab
+    ab.OnEvent("Close", (*) => ab.Hide())
+    ab.Show("w" aboutW)
 }
 
 ; P2-04: Pause sharing for a set number of minutes
 PauseSharing(minutes) {
-    global g_settingsPath
+    global g_settingsPath, g_pauseMenu
     if !FileExist(g_settingsPath)
         return
     try
@@ -251,19 +264,26 @@ PauseSharing(minutes) {
     ; Only toggle if currently ON
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*true')
         DoToggle(false)
+    ; Update checkmarks — uncheck all, then check active
+    for dur in [5, 15, 30]
+        g_pauseMenu.Uncheck(dur " minutes")
+    g_pauseMenu.Check(minutes " minutes")
     SetTimer(ResumeSharing, -(minutes * 60000))
     ShowOSD("MWBToggle: Sharing paused for " minutes " minutes.")
 }
 
 ; P2-04: Resume sharing after pause expires
 ResumeSharing() {
-    global g_settingsPath
+    global g_settingsPath, g_pauseMenu
     if !FileExist(g_settingsPath)
         return
     try
         json := FileRead(g_settingsPath, "UTF-8")
     catch
         return
+    ; Clear all pause checkmarks
+    for dur in [5, 15, 30]
+        g_pauseMenu.Uncheck(dur " minutes")
     ; Only toggle if currently OFF
     if RegExMatch(json, '"ShareClipboard"\s*:\s*\{\s*"value"\s*:\s*false')
         DoToggle(false)

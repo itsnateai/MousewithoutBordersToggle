@@ -11,16 +11,22 @@ Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse With
 - **Left-click** tray icon to toggle
 - **Right-click** tray icon for menu
 
+## Screenshots
+
+| Sharing ON | Sharing OFF | Tray Menu |
+|:---:|:---:|:---:|
+| ![ON](screenshots/mwbiconon.png) | ![OFF](screenshots/mwbiconoff.png) | ![Menu](screenshots/mwbmenu.png) |
+
 ## What It Looks Like
 
 **Tray Icon:** A small colored icon sits in your Windows system tray (bottom-right). Green when clipboard/file sharing is ON, red when OFF. Left-click to toggle, right-click for the menu.
 
 **Tray Menu (right-click):**
 - Toggle Sharing (on/off)
-- Pause Sharing (5 / 15 / 30 minutes, then auto-resumes)
+- Pause Sharing (5 / 15 / 30 minutes with checkmark, then auto-resumes)
 - Open PowerToys Settings
 - Run at Startup (creates/removes a startup shortcut)
-- About (shows version, hotkey, and project URL)
+- About (shows version, hotkey, GitHub link)
 - Exit
 
 **On-Screen Display:** When you toggle, a brief tooltip appears near your cursor showing the new state (e.g., "Sharing ON" or "Sharing OFF"). Appears on whichever monitor you're working on.
