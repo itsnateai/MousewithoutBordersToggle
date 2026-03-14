@@ -40,7 +40,8 @@ MWBToggle.ini       — Optional user config (gitignored, not shipped)
 
 ### Icon Fallback Chain
 1. Custom `.ico` file on disk (`g_icoOn`, `g_icoOff`)
-2. System icon from `imageres.dll` (icon 101 for ON, 98 for OFF)
+2. Embedded PE resource (`A_IsCompiled`) — on.ico=10, mwb.ico=11
+3. System icon from `imageres.dll` (icon 101 for ON, 98 for OFF)
 
 ### Error Handling
 - All `FileRead` calls wrapped in `try/catch` — MWB briefly locks `settings.json`
@@ -61,12 +62,13 @@ MWBToggle.ini       — Optional user config (gitignored, not shipped)
 
 ## Compilation
 
-```
-Ahk2Exe.exe /in MWBToggle.ahk /out MWBToggle.exe /icon on.ico /compress 0
+```bash
+MSYS_NO_PATHCONV=1 "X:/_Projects/_tools/Ahk/Ahk2Exe.exe" /in MWBToggle.ahk /out MWBToggle.exe /icon on.ico /compress 0 /silent
 ```
 
 - `/compress 0` is mandatory — compression triggers Windows Defender false positives
-- Place `on.ico` and `mwb.ico` next to the compiled `.exe`
+- Icons embedded via `@Ahk2Exe-AddResource` — compiled .exe works standalone, no external .ico needed
+- `.ico` files still shipped on GitHub for source users running the .ahk directly
 
 ## Gotchas
 
