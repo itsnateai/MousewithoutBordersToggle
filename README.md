@@ -2,14 +2,19 @@
 
 Toggle **Mouse Without Borders** clipboard and file sharing on/off with a hotkey or tray icon click.
 
-## What It Does
+A lightweight system tray companion for [PowerToys Mouse Without Borders](https://learn.microsoft.com/en-us/windows/powertoys/mouse-without-borders) that lets you quickly disable clipboard/file sharing for privacy (passwords, sensitive data) without digging through PowerToys settings.
 
-Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse Without Borders. Useful when you want to quickly disable clipboard sharing for privacy (passwords, sensitive data) without opening PowerToys settings.
+## Features
 
-- **Hotkey**: `Ctrl + Alt + C` (configurable in `MWBToggle.ini`)
-- **Tray icon**: Green = sharing ON, Red = sharing OFF
-- **Left-click** tray icon to toggle
-- **Right-click** tray icon for menu
+- **Hotkey toggle**: `Ctrl + Alt + C` (configurable) flips both ShareClipboard and TransferFile
+- **Tray icon**: Green = sharing ON, Red = sharing OFF. Left-click to toggle.
+- **Middle-click**: Opens the MWB settings window directly
+- **Pause sharing**: Temporarily disable for 5, 15, or 30 minutes with auto-resume
+- **Independent file transfer toggle**: Control TransferFile separately from ShareClipboard
+- **PowerToys submenu**: Quick access to PowerToys MWB settings and the legacy MWB configuration
+- **Run at startup**: One-click toggle to add/remove from Windows Startup folder
+- **Zero polling**: Uses OS-level FileSystemWatcher — no CPU usage when idle
+- **On-screen display**: Floating tooltip at cursor position (no toast notification spam)
 
 ## Screenshots
 
@@ -17,69 +22,40 @@ Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse With
 |:---:|:---:|:---:|
 | ![ON](screenshots/mwbiconon.png) | ![OFF](screenshots/mwbiconoff.png) | ![Menu](screenshots/mwbmenu.png) |
 
-## What It Looks Like
-
-**Tray Icon:** A small colored icon sits in your Windows system tray (bottom-right). Green when clipboard/file sharing is ON, red when OFF. Left-click to toggle, right-click for the menu.
-
-**Tray Menu (right-click):**
-- Toggle Sharing (on/off)
-- Pause Sharing (5 / 15 / 30 minutes with checkmark, then auto-resumes)
-- Open PowerToys Settings
-- Run at Startup (creates/removes a startup shortcut)
-- About (shows version, hotkey, GitHub link)
-- Exit
-
-**On-Screen Display:** When you toggle, a brief tooltip appears near your cursor showing the new state (e.g., "Sharing ON" or "Sharing OFF"). Appears on whichever monitor you're working on.
-
-**Settings file:** Optional `MWBToggle.ini` in the same folder as the script. Configures hotkey, confirmation prompt, and sound feedback.
-
 ## Requirements
 
 - Windows 10/11
 - [PowerToys](https://github.com/microsoft/PowerToys) with Mouse Without Borders enabled
 
-**For the C# version (recommended):**
-- [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (or publish self-contained — see below)
-
-**For the AHK version (legacy):**
-- [AutoHotkey v2](https://www.autohotkey.com/)
-
 ## Installation
 
-### Option A: C# version (recommended)
+### Option 1: Download
 
-The C# port in `MWBToggle.CSharp/` is a native Windows tray app — no AHK runtime, lower resource usage, no mouse jump issues.
+Grab the latest release from [Releases](https://github.com/itsnateai/MousewithoutBordersToggle/releases):
 
-**Run directly:**
-```
-cd MWBToggle.CSharp
-dotnet run
-```
+| File | Size | Notes |
+|------|------|-------|
+| **MWBToggle.exe** | ~280 KB | Requires [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
+| **MWBToggle-standalone.exe** | ~147 MB | No runtime needed, click and go |
 
-**Build an .exe:**
-```
-cd MWBToggle.CSharp
+### Option 2: Build from source
+
+```bash
+git clone https://github.com/itsnateai/MousewithoutBordersToggle.git
+cd MousewithoutBordersToggle
+
+# Framework-dependent (~280KB, requires .NET 8 runtime)
 dotnet publish -c Release
-```
-The output exe will be in `bin/Release/net8.0-windows/win-x64/publish/`.
 
-**Build a self-contained .exe (no .NET runtime required on target machine):**
-```
-cd MWBToggle.CSharp
+# Self-contained (~147MB, no runtime needed)
 dotnet publish -c Release --self-contained true
 ```
 
-Place your `MWBToggle.ini` in the same folder as the .exe if you want custom settings.
-
-### Option B: AHK version (legacy)
-
-1. Install [AutoHotkey v2](https://www.autohotkey.com/)
-2. Clone or download this repo
-3. Double-click `MWBToggle.ahk` to run
+Output: `bin/Release/net8.0-windows/win-x64/publish/MWBToggle.exe`
 
 ## Customization
 
-Create a `MWBToggle.ini` file in the same folder as the exe to override defaults:
+Create a `MWBToggle.ini` file in the same folder as the exe:
 
 ```ini
 [Settings]
@@ -96,7 +72,15 @@ MiddleClickMwbSettings=true
 | `SoundFeedback` | `false` | Beep on toggle (high tone ON, low tone OFF) |
 | `MiddleClickMwbSettings` | `true` | Middle-click tray icon opens MWB settings |
 
-If no INI file exists, the app uses the defaults above.
+## How It Works
+
+MWBToggle reads and writes the PowerToys Mouse Without Borders `settings.json` file directly:
+
+```
+%LOCALAPPDATA%\Microsoft\PowerToys\MouseWithoutBorders\settings.json
+```
+
+It toggles the `ShareClipboard` and `TransferFile` values using regex replacement, creates a backup before each write, and retries if the file is locked by MWB.
 
 ## Troubleshooting
 
@@ -105,20 +89,23 @@ If no INI file exists, the app uses the defaults above.
 
 **"Settings file not found"**
 - Mouse Without Borders must be run at least once to create its settings file.
-- Default path: `%LOCALAPPDATA%\Microsoft\PowerToys\MouseWithoutBorders\settings.json`
 
 **"Could not write to settings.json"**
 - The file may be locked by MWB. Wait a moment and try again.
-- If persistent, close PowerToys, toggle, then reopen PowerToys.
 
-**Tray icon doesn't update**
-- The C# version uses a file watcher and updates instantly when settings change. If it seems stuck, left-click the tray icon to force a toggle and re-sync.
+## Project Structure
 
-## Files
+| Path | Description |
+|------|-------------|
+| `MWBToggle.csproj` | .NET 8 project file |
+| `Program.cs` | Entry point — single-instance enforcement |
+| `MWBToggleApp.cs` | Main tray app — toggle, sync, pause, OSD, config |
+| `GlobalHotkey.cs` | Win32 RegisterHotKey with AHK-style string parsing |
+| `AboutForm.cs` | About dialog with GitHub link |
+| `IniConfig.cs` | Minimal INI file reader |
+| `on.ico` / `mwb.ico` | Tray icons (embedded as resources) |
+| `legacy/MWBToggle.ahk` | Original AutoHotkey v2 script (archived) |
 
-| File | Purpose |
-|------|---------|
-| `MWBToggle.CSharp/` | C# port (recommended) — .NET 8 Windows Forms tray app |
-| `MWBToggle.ahk` | Legacy AHK v2 script |
-| `on.ico` | Tray icon — sharing ON (green) |
-| `mwb.ico` | Tray icon — sharing OFF (red) |
+## License
+
+[MIT](LICENSE)

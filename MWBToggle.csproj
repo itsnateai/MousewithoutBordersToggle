@@ -4,23 +4,21 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationIcon>..\mwb.ico</ApplicationIcon>
+    <ApplicationIcon>mwb.ico</ApplicationIcon>
     <AssemblyName>MWBToggle</AssemblyName>
     <RootNamespace>MWBToggle</RootNamespace>
     <Version>2.2.0</Version>
     <Description>Toggle Mouse Without Borders clipboard and file sharing</Description>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Publish as single-file for easy distribution -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Embed the tray icons as resources -->
-    <EmbeddedResource Include="..\on.ico" Link="Resources\on.ico" LogicalName="MWBToggle.on.ico" />
-    <EmbeddedResource Include="..\mwb.ico" Link="Resources\mwb.ico" LogicalName="MWBToggle.mwb.ico" />
+    <EmbeddedResource Include="on.ico" LogicalName="MWBToggle.on.ico" />
+    <EmbeddedResource Include="mwb.ico" LogicalName="MWBToggle.mwb.ico" />
   </ItemGroup>
 
 </Project>
