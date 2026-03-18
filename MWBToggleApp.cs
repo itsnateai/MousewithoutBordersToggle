@@ -15,7 +15,7 @@ namespace MWBToggle;
 /// </summary>
 internal sealed class MWBToggleApp : ApplicationContext
 {
-    internal const string Version = "2.2.0";
+    internal const string Version = "2.3.0";
 
     // UTF-8 without BOM — matches AHK's "UTF-8-RAW"
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -54,6 +54,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private bool _confirmToggle;
     private bool _soundFeedback;
     private bool _middleClickOpensMwbSettings = true;
+    private bool _singleClickToggles = true;
     private bool _disposed;
 
     // ── UI ──────────────────────────────────────────────────────────────────
@@ -61,11 +62,12 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly ContextMenuStrip _menu;
     private readonly ToolStripMenuItem _startupItem;
     private readonly ToolStripMenuItem _pause5;
-    private readonly ToolStripMenuItem _pause15;
     private readonly ToolStripMenuItem _pause30;
+    private readonly ToolStripMenuItem _pauseUnlimited;
     private readonly ToolStripMenuItem _middleClickItem;
     private readonly ToolStripMenuItem _transferFileItem;
-    private readonly GlobalHotkey _globalHotkey;
+    private readonly ToolStripMenuItem _singleClickItem;
+    private GlobalHotkey _globalHotkey;
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
     private FileSystemWatcher? _fileWatcher;
@@ -105,39 +107,48 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Load INI config (may override _hotkey, _confirmToggle, _soundFeedback)
         LoadConfig();
 
-        // ── Build context menu (mirrors AHK tray menu) ─────────────────────
+        // ── Build context menu ─────────────────────────────────────────────
         _menu = new ContextMenuStrip();
 
-        var toggleItem = new ToolStripMenuItem("Toggle MWB Clipboard/Files", null, (_, _) => DoToggle());
-        toggleItem.Font = new Font(toggleItem.Font, FontStyle.Bold); // default action
-        _menu.Items.Add(toggleItem);
-
-        var hotkeyLabel = new ToolStripMenuItem("Hotkey: " + HotkeyToReadable(_hotkey))
-        { Enabled = false };
-        _menu.Items.Add(hotkeyLabel);
-
+        // Title bar
+        var titleItem = new ToolStripMenuItem($"MWBToggle v{Version}") { Enabled = false };
+        titleItem.Font = new Font(titleItem.Font, FontStyle.Bold);
+        _menu.Items.Add(titleItem);
         _menu.Items.Add(new ToolStripSeparator());
+
+        // Hotkey display (clickable — opens hotkey change dialog)
+        var hotkeyItem = new ToolStripMenuItem("Hotkey: " + HotkeyToReadable(_hotkey));
+        hotkeyItem.Click += (_, _) => ChangeHotkey(hotkeyItem);
+        _menu.Items.Add(hotkeyItem);
+        _menu.Items.Add(new ToolStripSeparator());
+
+        // Toggle action
+        _menu.Items.Add(new ToolStripMenuItem("Toggle Sharing", null, (_, _) => DoToggle()));
 
         // Pause sharing submenu
         _pause5 = new ToolStripMenuItem("5 minutes", null, (_, _) => PauseSharing(5));
-        _pause15 = new ToolStripMenuItem("15 minutes", null, (_, _) => PauseSharing(15));
         _pause30 = new ToolStripMenuItem("30 minutes", null, (_, _) => PauseSharing(30));
+        _pauseUnlimited = new ToolStripMenuItem("Until resumed", null, (_, _) => PauseSharing(0));
         var pauseItem = new ToolStripMenuItem("Pause Sharing");
-        pauseItem.DropDownItems.AddRange(new ToolStripItem[] { _pause5, _pause15, _pause30 });
+        pauseItem.DropDownItems.AddRange(new ToolStripItem[] { _pause5, _pause30, _pauseUnlimited });
         _menu.Items.Add(pauseItem);
-
-        // Run at Startup
-        _startupItem = new ToolStripMenuItem("Run at Startup", null, (_, _) => ToggleStartup());
-        _startupItem.Checked = File.Exists(_startupShortcut);
-        _menu.Items.Add(_startupItem);
 
         _menu.Items.Add(new ToolStripSeparator());
 
         // PowerToys submenu
         var powerToysMenu = new ToolStripMenuItem("PowerToys");
+        powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("About", null, (_, _) => ShowAbout()));
+        powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
         powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("Open PowerToys", null, (_, _) => OpenPowerToys()));
         powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("MWB Settings", null, (_, _) => OpenMwbSettings()));
         powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
+        _startupItem = new ToolStripMenuItem("Run at Startup", null, (_, _) => ToggleStartup());
+        _startupItem.Checked = File.Exists(_startupShortcut);
+        powerToysMenu.DropDownItems.Add(_startupItem);
+        powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
+        _singleClickItem = new ToolStripMenuItem("Single-click toggles sharing", null, (_, _) => ToggleSingleClick());
+        _singleClickItem.Checked = _singleClickToggles;
+        powerToysMenu.DropDownItems.Add(_singleClickItem);
         _middleClickItem = new ToolStripMenuItem("Middle-click opens MWB Settings", null, (_, _) => ToggleMiddleClick());
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
         powerToysMenu.DropDownItems.Add(_middleClickItem);
@@ -147,7 +158,6 @@ internal sealed class MWBToggleApp : ApplicationContext
         powerToysMenu.DropDownItems.Add(_transferFileItem);
         _menu.Items.Add(powerToysMenu);
 
-        _menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => ShowAbout()));
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
         // ── Tray icon ──────────────────────────────────────────────────────
@@ -158,7 +168,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         };
         _trayIcon.MouseClick += (_, e) =>
         {
-            if (e.Button == MouseButtons.Left)
+            if (e.Button == MouseButtons.Left && _singleClickToggles)
                 DoToggle();
             else if (e.Button == MouseButtons.Middle && _middleClickOpensMwbSettings)
                 OpenMwbSettings();
@@ -424,15 +434,21 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // Update checkmarks
         _pause5.Checked = minutes == 5;
-        _pause15.Checked = minutes == 15;
         _pause30.Checked = minutes == 30;
+        _pauseUnlimited.Checked = minutes == 0;
 
-        // One-shot timer to resume
+        // One-shot timer to resume (skip for unlimited)
         _pauseTimer.Stop();
-        _pauseTimer.Interval = minutes * 60_000;
-        _pauseTimer.Start();
+        if (minutes > 0)
+        {
+            _pauseTimer.Interval = minutes * 60_000;
+            _pauseTimer.Start();
+        }
 
-        ShowOSD($"MWBToggle: Sharing paused for {minutes} minutes.");
+        string msg = minutes > 0
+            ? $"MWBToggle: Sharing paused for {minutes} minutes."
+            : "MWBToggle: Sharing paused until resumed.";
+        ShowOSD(msg);
     }
 
     private void ResumeSharing()
@@ -447,8 +463,8 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // Clear checkmarks
         _pause5.Checked = false;
-        _pause15.Checked = false;
         _pause30.Checked = false;
+        _pauseUnlimited.Checked = false;
 
         // Only toggle if currently OFF
         var m = ShareClipboardRegex.Match(json);
@@ -529,10 +545,110 @@ internal sealed class MWBToggleApp : ApplicationContext
         }, IntPtr.Zero);
     }
 
+    private void ToggleSingleClick()
+    {
+        _singleClickToggles = !_singleClickToggles;
+        _singleClickItem.Checked = _singleClickToggles;
+    }
+
     private void ToggleMiddleClick()
     {
         _middleClickOpensMwbSettings = !_middleClickOpensMwbSettings;
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
+    }
+
+    /// <summary>
+    /// Show a key-capture dialog to change the global hotkey.
+    /// The old hotkey is unregistered and the new one registered immediately.
+    /// </summary>
+    private void ChangeHotkey(ToolStripMenuItem hotkeyMenuItem)
+    {
+        using var form = new Form
+        {
+            Text = "Set Hotkey",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            StartPosition = FormStartPosition.CenterScreen,
+            TopMost = true,
+            ClientSize = new Size(300, 100),
+            KeyPreview = true
+        };
+
+        var label = new Label
+        {
+            Text = "Press a key combination...\n(Ctrl/Alt/Shift/Win + key)",
+            AutoSize = false,
+            Size = new Size(280, 40),
+            Location = new Point(10, 10),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        form.Controls.Add(label);
+
+        var resultLabel = new Label
+        {
+            Text = "Current: " + HotkeyToReadable(_hotkey),
+            AutoSize = false,
+            Size = new Size(280, 20),
+            Location = new Point(10, 55),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        form.Controls.Add(resultLabel);
+
+        var cancelBtn = new Button
+        {
+            Text = "Cancel",
+            Size = new Size(80, 28),
+            Location = new Point(110, 80)
+        };
+        cancelBtn.Click += (_, _) => form.Close();
+        form.Controls.Add(cancelBtn);
+
+        form.KeyDown += (_, e) =>
+        {
+            // Need at least one modifier
+            if (e.Modifiers == Keys.None) return;
+
+            // Build AHK-style hotkey string
+            string ahk = "";
+            if (e.Control) ahk += "^";
+            if (e.Alt) ahk += "!";
+            if (e.Shift) ahk += "+";
+            if ((e.Modifiers & Keys.LWin) != 0 || e.KeyCode == Keys.LWin) ahk += "#";
+
+            // Get the actual key (not modifier keys themselves)
+            var key = e.KeyCode & ~Keys.Modifiers;
+            if (key is Keys.ControlKey or Keys.ShiftKey or Keys.Menu or Keys.LWin or Keys.RWin)
+                return; // Still pressing modifiers, wait for the actual key
+
+            ahk += key switch
+            {
+                >= Keys.A and <= Keys.Z => ((char)key).ToString().ToLowerInvariant(),
+                >= Keys.D0 and <= Keys.D9 => ((char)(key - Keys.D0 + '0')).ToString(),
+                >= Keys.F1 and <= Keys.F12 => key.ToString(),
+                Keys.Space => "Space",
+                Keys.Return => "Enter",
+                Keys.Escape => "Escape",
+                Keys.Tab => "Tab",
+                Keys.Back => "Backspace",
+                Keys.Delete => "Delete",
+                _ => key.ToString()
+            };
+
+            // Re-register the hotkey
+            _globalHotkey.Dispose();
+            _hotkey = ahk;
+            _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD("MWBToggle: " + msg, 5000));
+
+            hotkeyMenuItem.Text = "Hotkey: " + HotkeyToReadable(_hotkey);
+            ShowOSD("MWBToggle: Hotkey set to " + HotkeyToReadable(_hotkey));
+            form.Close();
+
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+        };
+
+        form.ShowDialog();
     }
 
     private void ToggleTransferFile()
@@ -745,6 +861,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         val = config.Get("Settings", "MiddleClickMwbSettings");
         if (!string.IsNullOrEmpty(val))
             _middleClickOpensMwbSettings = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+        val = config.Get("Settings", "SingleClickToggles");
+        if (!string.IsNullOrEmpty(val))
+            _singleClickToggles = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗

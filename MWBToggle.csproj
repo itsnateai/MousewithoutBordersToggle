@@ -7,7 +7,7 @@
     <ApplicationIcon>mwb.ico</ApplicationIcon>
     <AssemblyName>MWBToggle</AssemblyName>
     <RootNamespace>MWBToggle</RootNamespace>
-    <Version>2.2.0</Version>
+    <Version>2.3.0</Version>
     <Description>Toggle Mouse Without Borders clipboard and file sharing</Description>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
