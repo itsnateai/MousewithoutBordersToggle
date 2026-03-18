@@ -57,7 +57,9 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly Icon _iconOn;
     private readonly Icon _iconOff;
 
-    // ── Startup shortcut path ──────────────────────────────────────────────
+    // ── Paths ────────────────────────────────────────────────────────────
+    private readonly string _exeDir = Path.GetDirectoryName(
+        Environment.ProcessPath ?? Application.ExecutablePath) ?? AppContext.BaseDirectory;
     private readonly string _startupShortcut = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Startup),
         "MWBToggle.lnk");
@@ -72,12 +74,14 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     public MWBToggleApp()
     {
-        // Load embedded icons — clone system icons to avoid corrupting shared instances
-        var embeddedOn = LoadEmbeddedIcon("MWBToggle.on.ico");
-        var embeddedOff = LoadEmbeddedIcon("MWBToggle.mwb.ico");
-        _iconsAreEmbedded = embeddedOn != null && embeddedOff != null;
-        _iconOn = embeddedOn ?? (Icon)SystemIcons.Application.Clone();
-        _iconOff = embeddedOff ?? (Icon)SystemIcons.Shield.Clone();
+        // Icon loading priority: user's icons on disk > embedded in .exe > system fallback
+        // Users can drop on.ico / mwb.ico next to the .exe to override the built-in icons.
+        _iconOn = LoadIconFromDisk(Path.Combine(_exeDir, "on.ico"))
+                  ?? LoadEmbeddedIcon("MWBToggle.on.ico")
+                  ?? (Icon)SystemIcons.Application.Clone();
+        _iconOff = LoadIconFromDisk(Path.Combine(_exeDir, "mwb.ico"))
+                   ?? LoadEmbeddedIcon("MWBToggle.mwb.ico")
+                   ?? (Icon)SystemIcons.Shield.Clone();
 
         // Load INI config (may override _hotkey, _confirmToggle, _soundFeedback)
         LoadConfig();
@@ -457,8 +461,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         else
         {
             string exePath = Environment.ProcessPath ?? Application.ExecutablePath;
-            string exeDir = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory;
-            CreateShortcut(_startupShortcut, exePath, exeDir);
+            CreateShortcut(_startupShortcut, exePath, _exeDir);
             _startupItem.Checked = true;
             ShowOSD("MWBToggle: Added to startup.");
         }
@@ -581,11 +584,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void LoadConfig()
     {
-        // Use the actual .exe location, not AppContext.BaseDirectory
-        // (which points to a temp extraction dir for single-file publish)
-        string exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? Application.ExecutablePath)
-                        ?? AppContext.BaseDirectory;
-        string iniPath = Path.Combine(exeDir, "MWBToggle.ini");
+        string iniPath = Path.Combine(_exeDir, "MWBToggle.ini");
         if (!File.Exists(iniPath)) return;
 
         var config = IniConfig.Load(iniPath);
@@ -636,6 +635,22 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         string key = hk[i..].ToUpperInvariant();
         return mods + key;
+    }
+
+    /// <summary>
+    /// Load an icon from a file on disk (user override). Returns null if not found.
+    /// </summary>
+    private static Icon? LoadIconFromDisk(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            return new Icon(path);
+        }
+        catch
+        {
+            return null; // Corrupt or unreadable icon file — skip
+        }
     }
 
     /// <summary>
