@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.3.0] — 2026-03-18
+
+### New Features
+- **Hotkey picker** — click the hotkey label in the menu to capture a new key combo on the fly
+- **Single-click toggle option** — disable left-click toggling if you only want hotkey control
+- **"Until resumed" pause** — pause sharing indefinitely (no auto-resume timer)
+- **Restructured menu** — version title bar, About moved into PowerToys submenu, Run at Startup moved into PowerToys submenu
+
+### Changed
+- Pause options simplified to 5 minutes, 30 minutes, and Until resumed (removed 15 min)
+- Repo restructured for public release — C# source at root, AHK archived in `legacy/`
+
 ## [2.2.0] — 2026-03-18
 
 ### New Features
