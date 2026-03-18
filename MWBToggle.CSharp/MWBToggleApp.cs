@@ -321,7 +321,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         // FileSystemWatcher fires on a threadpool thread — marshal to UI thread
         _fileWatcher.Changed += (_, _) =>
         {
-            try { _trayIcon.BeginInvoke(SyncTray); } catch { }
+            try { _menu.BeginInvoke(SyncTray); } catch { }
         };
 
         // If the watcher errors (network drive disconnect, etc.), restart it
