@@ -150,7 +150,7 @@ internal sealed class GlobalHotkey : IDisposable
 
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == HOTKEY_ID)
+            if (m.Msg == WM_HOTKEY && (int)m.WParam == HOTKEY_ID)
             {
                 _callback();
                 return;

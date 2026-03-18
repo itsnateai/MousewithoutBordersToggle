@@ -36,10 +36,42 @@ Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse With
 ## Requirements
 
 - Windows 10/11
-- [AutoHotkey v2](https://www.autohotkey.com/)
 - [PowerToys](https://github.com/microsoft/PowerToys) with Mouse Without Borders enabled
 
+**For the C# version (recommended):**
+- [.NET 8 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) (or publish self-contained — see below)
+
+**For the AHK version (legacy):**
+- [AutoHotkey v2](https://www.autohotkey.com/)
+
 ## Installation
+
+### Option A: C# version (recommended)
+
+The C# port in `MWBToggle.CSharp/` is a native Windows tray app — no AHK runtime, lower resource usage, no mouse jump issues.
+
+**Run directly:**
+```
+cd MWBToggle.CSharp
+dotnet run
+```
+
+**Build an .exe:**
+```
+cd MWBToggle.CSharp
+dotnet publish -c Release
+```
+The output exe will be in `bin/Release/net8.0-windows/win-x64/publish/`.
+
+**Build a self-contained .exe (no .NET runtime required on target machine):**
+```
+cd MWBToggle.CSharp
+dotnet publish -c Release --self-contained true
+```
+
+Place your `MWBToggle.ini` in the same folder as the .exe if you want custom settings.
+
+### Option B: AHK version (legacy)
 
 1. Install [AutoHotkey v2](https://www.autohotkey.com/)
 2. Clone or download this repo
@@ -96,6 +128,7 @@ To distribute without requiring AutoHotkey installed:
 
 | File | Purpose |
 |------|---------|
-| `MWBToggle.ahk` | Main script |
+| `MWBToggle.CSharp/` | C# port (recommended) — .NET 8 Windows Forms tray app |
+| `MWBToggle.ahk` | Legacy AHK v2 script |
 | `on.ico` | Tray icon — sharing ON (green) |
 | `mwb.ico` | Tray icon — sharing OFF (red) |
