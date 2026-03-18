@@ -6,7 +6,7 @@ Toggle **Mouse Without Borders** clipboard and file sharing on/off with a hotkey
 
 Toggles the `ShareClipboard` and `TransferFile` settings in PowerToys Mouse Without Borders. Useful when you want to quickly disable clipboard sharing for privacy (passwords, sensitive data) without opening PowerToys settings.
 
-- **Hotkey**: `Ctrl + Alt + C` (configurable in script)
+- **Hotkey**: `Ctrl + Alt + C` (configurable in `MWBToggle.ini`)
 - **Tray icon**: Green = sharing ON, Red = sharing OFF
 - **Left-click** tray icon to toggle
 - **Right-click** tray icon for menu
@@ -94,19 +94,7 @@ SoundFeedback=false
 | `ConfirmToggle` | `false` | Prompt before each toggle |
 | `SoundFeedback` | `false` | Beep on toggle (high tone ON, low tone OFF) |
 
-If no INI file exists, the script uses the defaults above. You can also edit the hotkey directly in `MWBToggle.ahk` line 23.
-
-## Compiling to .exe
-
-To distribute without requiring AutoHotkey installed:
-
-1. Install [AutoHotkey v2](https://www.autohotkey.com/)
-2. Run the compiler:
-   ```
-   Ahk2Exe.exe /in MWBToggle.ahk /out MWBToggle.exe /compress 0
-   ```
-   Use `/compress 0` to avoid Windows Defender false positives.
-3. Place `on.ico` and `mwb.ico` in the same folder as `MWBToggle.exe`
+If no INI file exists, the app uses the defaults above.
 
 ## Troubleshooting
 
@@ -122,7 +110,7 @@ To distribute without requiring AutoHotkey installed:
 - If persistent, close PowerToys, toggle, then reopen PowerToys.
 
 **Tray icon doesn't update**
-- The icon syncs every 5 seconds. If it seems stuck, right-click the tray icon and select "Toggle" to force a sync.
+- The C# version uses a file watcher and updates instantly when settings change. If it seems stuck, left-click the tray icon to force a toggle and re-sync.
 
 ## Files
 
