@@ -35,7 +35,8 @@ internal static class Program
     private static void KillPreviousInstance()
     {
         int myPid = Environment.ProcessId;
-        string myName = Process.GetCurrentProcess().ProcessName;
+        using var self = Process.GetCurrentProcess();
+        string myName = self.ProcessName;
 
         foreach (var proc in Process.GetProcessesByName(myName))
         {

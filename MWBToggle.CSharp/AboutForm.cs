@@ -59,7 +59,7 @@ internal sealed class AboutForm : Form
         };
         githubBtn.Click += (_, _) =>
         {
-            Process.Start(new ProcessStartInfo("https://github.com/itsnateai/MousewithoutBordersToggle")
+            using var _ = Process.Start(new ProcessStartInfo("https://github.com/itsnateai/MousewithoutBordersToggle")
             { UseShellExecute = true });
         };
         Controls.Add(githubBtn);
