@@ -64,6 +64,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly ToolStripMenuItem _pause15;
     private readonly ToolStripMenuItem _pause30;
     private readonly ToolStripMenuItem _middleClickItem;
+    private readonly ToolStripMenuItem _transferFileItem;
     private readonly GlobalHotkey _globalHotkey;
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
@@ -87,6 +88,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     // ── SyncTray state cache (avoid allocations every 5s) ────────────────
     private bool _lastSyncState;
+    private bool _lastTransferFileState;
     private bool _lastSyncInitialized;
 
     public MWBToggleApp()
@@ -139,6 +141,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         _middleClickItem = new ToolStripMenuItem("Middle-click opens MWB Settings", null, (_, _) => ToggleMiddleClick());
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
         powerToysMenu.DropDownItems.Add(_middleClickItem);
+        powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
+        _transferFileItem = new ToolStripMenuItem("File Transfer", null, (_, _) => ToggleTransferFile());
+        _transferFileItem.Checked = true; // SyncTray will set the real state
+        powerToysMenu.DropDownItems.Add(_transferFileItem);
         _menu.Items.Add(powerToysMenu);
 
         _menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => ShowAbout()));
@@ -315,6 +321,9 @@ internal sealed class MWBToggleApp : ApplicationContext
     private static readonly Regex ShareClipboardReplaceRegex = new(
         @"(""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*)(true|false)",
         RegexOptions.Compiled);
+    private static readonly Regex TransferFileRegex = new(
+        @"""TransferFile""\s*:\s*\{\s*""value""\s*:\s*(true|false)",
+        RegexOptions.Compiled);
     private static readonly Regex TransferFileReplaceRegex = new(
         @"(""TransferFile""\s*:\s*\{\s*""value""\s*:\s*)(true|false)",
         RegexOptions.Compiled);
@@ -360,15 +369,19 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void SyncTray()
     {
-        bool on = false;
+        bool clipOn = false;
+        bool fileOn = false;
         try
         {
             if (File.Exists(_settingsPath))
             {
                 string json = File.ReadAllText(_settingsPath, Utf8NoBom);
-                var m = ShareClipboardRegex.Match(json);
-                if (m.Success)
-                    on = m.Groups[1].Value == "true";
+                var cm = ShareClipboardRegex.Match(json);
+                if (cm.Success)
+                    clipOn = cm.Groups[1].Value == "true";
+                var fm = TransferFileRegex.Match(json);
+                if (fm.Success)
+                    fileOn = fm.Groups[1].Value == "true";
             }
         }
         catch
@@ -377,12 +390,18 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
 
         // Only update tray icon/text when state actually changes
-        if (!_lastSyncInitialized || on != _lastSyncState)
+        if (!_lastSyncInitialized || clipOn != _lastSyncState)
         {
-            _lastSyncState = on;
+            _lastSyncState = clipOn;
             _lastSyncInitialized = true;
-            _trayIcon.Icon = on ? _iconOn : _iconOff;
-            _trayIcon.Text = on ? TrayTextOn : TrayTextOff;
+            _trayIcon.Icon = clipOn ? _iconOn : _iconOff;
+            _trayIcon.Text = clipOn ? TrayTextOn : TrayTextOff;
+        }
+
+        if (fileOn != _lastTransferFileState)
+        {
+            _lastTransferFileState = fileOn;
+            _transferFileItem.Checked = fileOn;
         }
     }
 
@@ -514,6 +533,58 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         _middleClickOpensMwbSettings = !_middleClickOpensMwbSettings;
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
+    }
+
+    private void ToggleTransferFile()
+    {
+        if (!File.Exists(_settingsPath)) return;
+
+        string json;
+        try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
+        catch { return; }
+
+        // Read current states
+        var clipMatch = ShareClipboardRegex.Match(json);
+        var fileMatch = TransferFileRegex.Match(json);
+        if (!fileMatch.Success) return;
+
+        bool clipboardOn = clipMatch.Success && clipMatch.Groups[1].Value == "true";
+        bool transferOn = fileMatch.Groups[1].Value == "true";
+
+        // Can't enable file transfer without clipboard sharing
+        if (!transferOn && !clipboardOn)
+        {
+            ShowOSD("MWBToggle: ShareClipboard must be ON for file transfer.", 5000);
+            return;
+        }
+
+        // Flip only TransferFile
+        string newVal = transferOn ? "false" : "true";
+        json = TransferFileReplaceRegex.Replace(json, "$1" + newVal);
+
+        try { File.Copy(_settingsPath, _settingsPath + ".bak", overwrite: true); } catch { }
+
+        bool written = false;
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                File.WriteAllText(_settingsPath, json, Utf8NoBom);
+                written = true;
+                break;
+            }
+            catch (IOException) { WaitWithMessagePump(200); }
+        }
+
+        if (!written)
+        {
+            ShowOSD("MWBToggle: Could not write settings.json — file locked.", 5000);
+            return;
+        }
+
+        WaitWithMessagePump(300);
+        SyncTray();
+        ShowOSD("MWBToggle: File Transfer " + (transferOn ? "OFF" : "ON"));
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
