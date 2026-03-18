@@ -67,6 +67,10 @@ internal sealed class MWBToggleApp : ApplicationContext
     private Form? _osdForm;
     private System.Windows.Forms.Timer? _osdTimer;
 
+    // ── SyncTray state cache (avoid allocations every 5s) ────────────────
+    private bool _lastSyncState;
+    private bool _lastSyncInitialized;
+
     public MWBToggleApp()
     {
         // Load embedded icons — clone system icons to avoid corrupting shared instances
@@ -182,7 +186,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
 
         // Detect current ShareClipboard state
-        var match = Regex.Match(json, @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*(true|false)");
+        var match = ShareClipboardRegex.Match(json);
         if (!match.Success)
         {
             MessageBox.Show(
@@ -204,13 +208,12 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // Flip both values
         string newVal = currentlyOn ? "false" : "true";
-        json = Regex.Replace(json,
-            @"(""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*)(true|false)", "$1" + newVal);
-        json = Regex.Replace(json,
-            @"(""TransferFile""\s*:\s*\{\s*""value""\s*:\s*)(true|false)", "$1" + newVal);
+        json = ShareClipboardReplaceRegex.Replace(json, "$1" + newVal);
+        json = TransferFileReplaceRegex.Replace(json, "$1" + newVal);
 
         // Verify replacement took effect
-        if (!Regex.IsMatch(json, @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*" + newVal))
+        var verify = ShareClipboardRegex.Match(json);
+        if (!verify.Success || verify.Groups[1].Value != newVal)
         {
             MessageBox.Show(
                 "Failed to update ShareClipboard in settings.json — the JSON structure may have changed.\n\nNo changes were written.",
@@ -280,6 +283,22 @@ internal sealed class MWBToggleApp : ApplicationContext
     // ║  Tray sync                                                           ║
     // ╚══════════════════════════════════════════════════════════════════════╝
 
+    // Pre-compiled regexes — avoids re-parsing pattern strings on hot paths.
+    // SyncTray alone runs every 5s (~84,000 times/week).
+    private static readonly Regex ShareClipboardRegex = new(
+        @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*(true|false)",
+        RegexOptions.Compiled);
+    private static readonly Regex ShareClipboardReplaceRegex = new(
+        @"(""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*)(true|false)",
+        RegexOptions.Compiled);
+    private static readonly Regex TransferFileReplaceRegex = new(
+        @"(""TransferFile""\s*:\s*\{\s*""value""\s*:\s*)(true|false)",
+        RegexOptions.Compiled);
+
+    // Pre-built tooltip strings — avoids allocating a new string every 5s
+    private static readonly string TrayTextOn  = $"MWBToggle v{Version} — Clipboard/Files: ON";
+    private static readonly string TrayTextOff = $"MWBToggle v{Version} — Clipboard/Files: OFF";
+
     private void SyncTray()
     {
         bool on = false;
@@ -288,7 +307,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             if (File.Exists(_settingsPath))
             {
                 string json = File.ReadAllText(_settingsPath, Utf8NoBom);
-                var m = Regex.Match(json, @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*(true|false)");
+                var m = ShareClipboardRegex.Match(json);
                 if (m.Success)
                     on = m.Groups[1].Value == "true";
             }
@@ -298,8 +317,14 @@ internal sealed class MWBToggleApp : ApplicationContext
             return; // File locked — skip, retry in 5s
         }
 
-        _trayIcon.Icon = on ? _iconOn : _iconOff;
-        _trayIcon.Text = $"MWBToggle v{Version} — Clipboard/Files: {(on ? "ON" : "OFF")}";
+        // Only update tray icon/text when state actually changes
+        if (!_lastSyncInitialized || on != _lastSyncState)
+        {
+            _lastSyncState = on;
+            _lastSyncInitialized = true;
+            _trayIcon.Icon = on ? _iconOn : _iconOff;
+            _trayIcon.Text = on ? TrayTextOn : TrayTextOff;
+        }
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -315,7 +340,8 @@ internal sealed class MWBToggleApp : ApplicationContext
         catch { return; }
 
         // Only toggle if currently ON
-        if (Regex.IsMatch(json, @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*true"))
+        var m = ShareClipboardRegex.Match(json);
+        if (m.Success && m.Groups[1].Value == "true")
             DoToggle(confirm: false);
 
         // Update checkmarks
@@ -347,7 +373,8 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pause30.Checked = false;
 
         // Only toggle if currently OFF
-        if (Regex.IsMatch(json, @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*false"))
+        var m = ShareClipboardRegex.Match(json);
+        if (m.Success && m.Groups[1].Value == "false")
             DoToggle(confirm: false);
 
         ShowOSD("MWBToggle: Sharing resumed.");
@@ -458,9 +485,18 @@ internal sealed class MWBToggleApp : ApplicationContext
     private void ShowOSD(string message, int durationMs = 3000)
     {
         // Dispose previous OSD if still showing
-        _osdTimer?.Stop();
-        _osdForm?.Close();
-        _osdForm?.Dispose();
+        if (_osdTimer != null)
+        {
+            _osdTimer.Stop();
+            _osdTimer.Dispose();
+            _osdTimer = null;
+        }
+        if (_osdForm != null)
+        {
+            _osdForm.Close();
+            _osdForm.Dispose();
+            _osdForm = null;
+        }
 
         var form = new Form
         {
@@ -491,16 +527,19 @@ internal sealed class MWBToggleApp : ApplicationContext
         form.Show();
         _osdForm = form;
 
-        // Auto-dismiss after duration
-        _osdTimer = new System.Windows.Forms.Timer { Interval = durationMs };
-        _osdTimer.Tick += (_, _) =>
+        // Auto-dismiss after duration — reuse timer pattern, dispose on fire
+        var timer = new System.Windows.Forms.Timer { Interval = durationMs };
+        _osdTimer = timer;
+        timer.Tick += (_, _) =>
         {
-            _osdTimer.Stop();
+            timer.Stop();
+            timer.Dispose();
             form.Close();
             form.Dispose();
+            if (_osdTimer == timer) _osdTimer = null;
             if (_osdForm == form) _osdForm = null;
         };
-        _osdTimer.Start();
+        timer.Start();
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
