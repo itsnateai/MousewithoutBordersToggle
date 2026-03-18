@@ -28,15 +28,20 @@ internal sealed class MWBToggleApp : ApplicationContext
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern uint RegisterWindowMessage(string lpString);
 
-    // P/Invoke for showing/activating the MWB settings window
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    // P/Invoke for opening MWB settings (simulate tray icon click)
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [DllImport("user32.dll")]
-    private static extern bool SetForegroundWindow(IntPtr hWnd);
+    private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
 
-    private const int SW_SHOW = 5;
-    private const int SW_RESTORE = 9;
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     // ── Configuration (defaults, overridden by MWBToggle.ini) ──────────────
     private string _hotkey = "^!c";   // Ctrl+Alt+C
@@ -457,7 +462,11 @@ internal sealed class MWBToggleApp : ApplicationContext
         string? exe = FindPowerToysExe();
         if (exe != null)
         {
-            using var _ = Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo(exe)
+            {
+                Arguments = "--open-settings=MouseWithoutBorders",
+                UseShellExecute = true
+            });
         }
         else
         {
@@ -467,25 +476,38 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void OpenMwbSettings()
     {
-        // Find the running MWB process and show its settings window
-        var processes = Process.GetProcessesByName("PowerToys.MouseWithoutBorders");
-        try
+        // Send WM_TRAYMOUSEMESSAGE with WM_LBUTTONDOWN to MWB's WinForms windows.
+        // This triggers the same code path as clicking the MWB tray icon.
+        const uint WM_TRAYMOUSEMESSAGE = 0x0800;
+        const uint WM_LBUTTONDOWN = 0x0201;
+
+        var pids = new HashSet<uint>();
+        foreach (var p in Process.GetProcessesByName("PowerToys.MouseWithoutBorders"))
         {
-            foreach (var p in processes)
+            pids.Add((uint)p.Id);
+            p.Dispose();
+        }
+
+        if (pids.Count == 0)
+        {
+            ShowOSD("MWBToggle: Mouse Without Borders is not running.", 5000);
+            return;
+        }
+
+        EnumWindows((hWnd, _) =>
+        {
+            GetWindowThreadProcessId(hWnd, out uint pid);
+            if (!pids.Contains(pid)) return true;
+
+            var cls = new StringBuilder(256);
+            GetClassName(hWnd, cls, 256);
+            if (cls.ToString().StartsWith("WindowsForms10", StringComparison.Ordinal))
             {
-                if (p.MainWindowHandle != IntPtr.Zero)
-                {
-                    ShowWindow(p.MainWindowHandle, SW_RESTORE);
-                    SetForegroundWindow(p.MainWindowHandle);
-                    return;
-                }
+                for (int id = 0; id <= 2; id++)
+                    PostMessage(hWnd, WM_TRAYMOUSEMESSAGE, (IntPtr)id, (IntPtr)WM_LBUTTONDOWN);
             }
-            ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000);
-        }
-        finally
-        {
-            foreach (var p in processes) p.Dispose();
-        }
+            return true;
+        }, IntPtr.Zero);
     }
 
     private void ToggleMiddleClick()
