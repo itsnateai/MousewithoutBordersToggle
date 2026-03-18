@@ -23,9 +23,16 @@ ASSUMPTIONS.md
 *.swo
 *~
 
+# C# / .NET
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+publish/
+
 # Temp files
 *.tmp
 *.bak
 *.orig
 *.rej
-CLAUDE.md
