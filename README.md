@@ -79,20 +79,22 @@ Place your `MWBToggle.ini` in the same folder as the .exe if you want custom set
 
 ## Customization
 
-Create a `MWBToggle.ini` file in the same folder as the script to override defaults without editing the script:
+Create a `MWBToggle.ini` file in the same folder as the exe to override defaults:
 
 ```ini
 [Settings]
 Hotkey=^!c
 ConfirmToggle=false
 SoundFeedback=false
+MiddleClickMwbSettings=true
 ```
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `Hotkey` | `^!c` | AHK hotkey string (`#` Win, `^` Ctrl, `!` Alt, `+` Shift) |
+| `Hotkey` | `^!c` | Hotkey string (`#` Win, `^` Ctrl, `!` Alt, `+` Shift) |
 | `ConfirmToggle` | `false` | Prompt before each toggle |
 | `SoundFeedback` | `false` | Beep on toggle (high tone ON, low tone OFF) |
+| `MiddleClickMwbSettings` | `true` | Middle-click tray icon opens MWB settings |
 
 If no INI file exists, the app uses the defaults above.
 

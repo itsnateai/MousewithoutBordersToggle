@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0] — 2026-03-18
+
+### New Features
+- **Middle-click opens MWB Settings** — middle-click the tray icon to jump straight to PowerToys Mouse Without Borders settings (uses `--open-settings=MouseWithoutBorders` deep link)
+- **PowerToys submenu** — "Open PowerToys" and "MWB Settings" grouped under a PowerToys submenu with a toggleable "Middle-click opens MWB Settings" option
+- **INI config** — new `MiddleClickMwbSettings=true` setting in `[Settings]` section
+
 ## [2.0.0] — 2026-03-18
 
 ### New Features

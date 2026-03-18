@@ -15,7 +15,7 @@ namespace MWBToggle;
 /// </summary>
 internal sealed class MWBToggleApp : ApplicationContext
 {
-    internal const string Version = "2.0.0";
+    internal const string Version = "2.1.0";
 
     // UTF-8 without BOM — matches AHK's "UTF-8-RAW"
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
@@ -38,6 +38,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         @"PowerToys\PowerToys.exe");
     private bool _confirmToggle;
     private bool _soundFeedback;
+    private bool _middleClickOpensMwbSettings = true;
     private bool _disposed;
 
     // ── UI ──────────────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly ToolStripMenuItem _pause5;
     private readonly ToolStripMenuItem _pause15;
     private readonly ToolStripMenuItem _pause30;
+    private readonly ToolStripMenuItem _middleClickItem;
     private readonly GlobalHotkey _globalHotkey;
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
@@ -113,7 +115,17 @@ internal sealed class MWBToggleApp : ApplicationContext
         _menu.Items.Add(_startupItem);
 
         _menu.Items.Add(new ToolStripSeparator());
-        _menu.Items.Add(new ToolStripMenuItem("Open PowerToys", null, (_, _) => OpenPowerToys()));
+
+        // PowerToys submenu
+        var powerToysMenu = new ToolStripMenuItem("PowerToys");
+        powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("Open PowerToys", null, (_, _) => OpenPowerToys()));
+        powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("MWB Settings", null, (_, _) => OpenMwbSettings()));
+        powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
+        _middleClickItem = new ToolStripMenuItem("Middle-click opens MWB Settings", null, (_, _) => ToggleMiddleClick());
+        _middleClickItem.Checked = _middleClickOpensMwbSettings;
+        powerToysMenu.DropDownItems.Add(_middleClickItem);
+        _menu.Items.Add(powerToysMenu);
+
         _menu.Items.Add(new ToolStripMenuItem("About", null, (_, _) => ShowAbout()));
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
@@ -127,6 +139,8 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             if (e.Button == MouseButtons.Left)
                 DoToggle();
+            else if (e.Button == MouseButtons.Middle && _middleClickOpensMwbSettings)
+                OpenMwbSettings();
         };
 
         // ── Global hotkey (may update _hotkey on fallback) ─────────────────
@@ -411,29 +425,57 @@ internal sealed class MWBToggleApp : ApplicationContext
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
-    // ║  Open PowerToys                                                      ║
+    // ║  PowerToys                                                            ║
     // ╚══════════════════════════════════════════════════════════════════════╝
 
-    private void OpenPowerToys()
+    /// <summary>
+    /// Find the PowerToys executable — checks user install then machine-wide install.
+    /// </summary>
+    private string? FindPowerToysExe()
     {
-        if (File.Exists(_powerToysExe))
-        {
-            using var _ = Process.Start(new ProcessStartInfo(_powerToysExe) { UseShellExecute = true });
-            return;
-        }
+        if (File.Exists(_powerToysExe)) return _powerToysExe;
 
         string machinePath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             @"PowerToys\PowerToys.exe");
 
-        if (File.Exists(machinePath))
+        return File.Exists(machinePath) ? machinePath : null;
+    }
+
+    private void OpenPowerToys()
+    {
+        string? exe = FindPowerToysExe();
+        if (exe != null)
         {
-            using var _ = Process.Start(new ProcessStartInfo(machinePath) { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
         }
         else
         {
             ShowOSD("MWBToggle: Could not find PowerToys — open it from the Start menu.", 5000);
         }
+    }
+
+    private void OpenMwbSettings()
+    {
+        string? exe = FindPowerToysExe();
+        if (exe != null)
+        {
+            using var _ = Process.Start(new ProcessStartInfo(exe)
+            {
+                Arguments = "--open-settings=MouseWithoutBorders",
+                UseShellExecute = true
+            });
+        }
+        else
+        {
+            ShowOSD("MWBToggle: Could not find PowerToys — open it from the Start menu.", 5000);
+        }
+    }
+
+    private void ToggleMiddleClick()
+    {
+        _middleClickOpensMwbSettings = !_middleClickOpensMwbSettings;
+        _middleClickItem.Checked = _middleClickOpensMwbSettings;
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -590,6 +632,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         val = config.Get("Settings", "SoundFeedback");
         if (!string.IsNullOrEmpty(val))
             _soundFeedback = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+        val = config.Get("Settings", "MiddleClickMwbSettings");
+        if (!string.IsNullOrEmpty(val))
+            _middleClickOpensMwbSettings = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
