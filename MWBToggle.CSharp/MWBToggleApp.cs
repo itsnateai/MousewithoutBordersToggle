@@ -130,7 +130,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         };
 
         // ── Global hotkey (may update _hotkey on fallback) ─────────────────
-        _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle);
+        _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD("MWBToggle: " + msg, 5000));
 
         // ── Message window for TaskbarCreated (Explorer restart recovery) ──
         _messageWindow = new MessageWindow(RegisterWindowMessage("TaskbarCreated"), () =>
@@ -171,8 +171,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         if (!File.Exists(_settingsPath))
         {
-            MessageBox.Show("Settings file not found:\n" + _settingsPath,
-                "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowOSD("MWBToggle: Settings file not found — check PowerToys MWB is configured.", 5000);
             return;
         }
 
@@ -192,9 +191,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         var match = ShareClipboardRegex.Match(json);
         if (!match.Success)
         {
-            MessageBox.Show(
-                "Could not find ShareClipboard in settings.json.\n\nMake sure Mouse Without Borders has been run at least once.",
-                "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowOSD("MWBToggle: ShareClipboard not found in settings.json — run MWB at least once.", 5000);
             return;
         }
 
@@ -218,9 +215,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         var verify = ShareClipboardRegex.Match(json);
         if (!verify.Success || verify.Groups[1].Value != newVal)
         {
-            MessageBox.Show(
-                "Failed to update ShareClipboard in settings.json — the JSON structure may have changed.\n\nNo changes were written.",
-                "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
             return;
         }
 
@@ -246,9 +241,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         if (!written)
         {
-            MessageBox.Show(
-                "Could not write to settings.json — the file may be locked by Mouse Without Borders.\n\nPlease try again in a moment.",
-                "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            ShowOSD("MWBToggle: Could not write settings.json — file locked. Try again.", 5000);
             return;
         }
 
@@ -439,10 +432,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
         else
         {
-            MessageBox.Show(
-                "Could not find PowerToys.\n\nExpected:\n" + _powerToysExe +
-                "\n\nYou can open it manually from the Start menu.",
-                "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ShowOSD("MWBToggle: Could not find PowerToys — open it from the Start menu.", 5000);
         }
     }
 

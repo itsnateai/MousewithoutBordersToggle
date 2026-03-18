@@ -1,5 +1,27 @@
 # Changelog
 
+## [2.0.0] — 2026-03-18
+
+### New Features
+- **C# port** — complete rewrite from AutoHotkey v2 to C# (.NET 8 Windows Forms) with full feature parity
+- **FileSystemWatcher** — replaced 5-second polling timer with OS-level file change notifications (zero CPU when idle)
+- **Embedded icons** — tray icons are compiled into the .exe, no external .ico files needed (still supports disk overrides)
+
+### Performance
+- **Zero idle allocations** — pre-compiled regexes, cached tray text, state-change-only icon updates
+- **No mouse interference** — AHK's system-wide hooks are gone; C# uses standard Win32 RegisterHotKey
+
+### Bug Fixes
+- **Memory leaks** — all Process handles properly disposed (GetProcessesByName, GetCurrentProcess, Process.Start)
+- **Build fix** — NotifyIcon.BeginInvoke → ContextMenuStrip.BeginInvoke for FileSystemWatcher thread marshaling
+- **No more popups** — replaced all MessageBox.Show error dialogs with floating OSD tooltips (matches AHK ToolTip pattern)
+
+### Code Quality
+- **Icon fallback chain** — user disk icons > embedded resources > system fallback
+- **Explorer restart recovery** — TaskbarCreated message handler re-shows tray icon
+- **COM cleanup** — WScript.Shell properly released via Marshal.ReleaseComObject
+- **Single-instance** — mutex + kill previous process (matches AHK #SingleInstance Force)
+
 ## [1.5.0] — 2026-03-14
 
 ### New Features
