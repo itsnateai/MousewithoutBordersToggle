@@ -1,7 +1,15 @@
-# AutoHotkey
+# Build output
+bin/
+obj/
+publish/
 *.exe
 *.log
+
+# User config
 MWBToggle.ini
+
+# Internal
+CLAUDE.md
 
 # Windows
 Thumbs.db
@@ -10,26 +18,15 @@ desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# Task Management
-AUDIT_TASKS.md
-TODO_LIST.md
-SCHEDULED_TASKS.md
-ASSUMPTIONS.md
-
 # IDE / Editor
 .vscode/
 .idea/
+*.vs/
+*.user
+*.suo
 *.swp
 *.swo
 *~
-
-# C# / .NET
-bin/
-obj/
-*.user
-*.suo
-*.vs/
-publish/
 
 # Temp files
 *.tmp
