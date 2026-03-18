@@ -33,7 +33,8 @@ internal sealed class GlobalHotkey : IDisposable
     /// and updates <paramref name="ahkHotkey"/> so the caller's field reflects
     /// the actual registered hotkey (mirrors AHK line 73: g_hotkey := "^!c").
     /// </summary>
-    public GlobalHotkey(ref string ahkHotkey, Action callback)
+    /// <param name="onWarning">Optional callback for warning messages (replaces MessageBox).</param>
+    public GlobalHotkey(ref string ahkHotkey, Action callback, Action<string>? onWarning = null)
     {
         ParseAhkHotkey(ahkHotkey, out uint modifiers, out uint vk);
 
@@ -41,10 +42,8 @@ internal sealed class GlobalHotkey : IDisposable
 
         if (!RegisterHotKey(_window.Handle, HOTKEY_ID, modifiers, vk))
         {
-            // Registration failed — show warning and fall back to Ctrl+Alt+C
-            MessageBox.Show(
-                $"Invalid hotkey: {ahkHotkey}\n\nCheck your MWBToggle.ini [Settings] Hotkey value.\n\nFalling back to Ctrl+Alt+C.",
-                "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            // Registration failed — warn and fall back to Ctrl+Alt+C
+            onWarning?.Invoke($"Invalid hotkey: {ahkHotkey} — falling back to Ctrl+Alt+C.");
 
             ahkHotkey = "^!c";
             RegisterHotKey(_window.Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT, (uint)Keys.C);
