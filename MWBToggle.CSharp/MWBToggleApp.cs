@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
@@ -15,21 +17,32 @@ internal sealed class MWBToggleApp : ApplicationContext
 {
     internal const string Version = "2.0.0";
 
+    // UTF-8 without BOM — matches AHK's "UTF-8-RAW"
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+    // P/Invoke for kernel32 Beep (Console.Beep may not work in WinExe)
+    [DllImport("kernel32.dll")]
+    private static extern bool Beep(uint dwFreq, uint dwDuration);
+
+    // P/Invoke for TaskbarCreated message (Explorer restart recovery)
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessage(string lpString);
+
     // ── Configuration (defaults, overridden by MWBToggle.ini) ──────────────
     private string _hotkey = "^!c";   // Ctrl+Alt+C
-    private string _settingsPath = Path.Combine(
+    private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         @"Microsoft\PowerToys\MouseWithoutBorders\settings.json");
-    private string _powerToysExe = Path.Combine(
+    private readonly string _powerToysExe = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         @"PowerToys\PowerToys.exe");
     private bool _confirmToggle;
     private bool _soundFeedback;
+    private bool _disposed;
 
     // ── UI ──────────────────────────────────────────────────────────────────
     private readonly NotifyIcon _trayIcon;
     private readonly ContextMenuStrip _menu;
-    private readonly ToolStripMenuItem _pauseItem;
     private readonly ToolStripMenuItem _startupItem;
     private readonly ToolStripMenuItem _pause5;
     private readonly ToolStripMenuItem _pause15;
@@ -37,23 +50,31 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly GlobalHotkey _globalHotkey;
     private readonly System.Windows.Forms.Timer _syncTimer;
     private readonly System.Windows.Forms.Timer _pauseTimer;
-    private ToolTip? _osdTip;
+    private readonly MessageWindow _messageWindow;
     private AboutForm? _aboutForm;
 
     // ── Embedded icons ─────────────────────────────────────────────────────
     private readonly Icon _iconOn;
     private readonly Icon _iconOff;
+    private readonly bool _iconsAreEmbedded; // track whether we own the icons
 
     // ── Startup shortcut path ──────────────────────────────────────────────
     private readonly string _startupShortcut = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Startup),
         "MWBToggle.lnk");
 
+    // ── OSD tooltip ────────────────────────────────────────────────────────
+    private Form? _osdForm;
+    private System.Windows.Forms.Timer? _osdTimer;
+
     public MWBToggleApp()
     {
-        // Load embedded icons
-        _iconOn = LoadEmbeddedIcon("MWBToggle.on.ico") ?? SystemIcons.Application;
-        _iconOff = LoadEmbeddedIcon("MWBToggle.mwb.ico") ?? SystemIcons.Shield;
+        // Load embedded icons — clone system icons to avoid corrupting shared instances
+        var embeddedOn = LoadEmbeddedIcon("MWBToggle.on.ico");
+        var embeddedOff = LoadEmbeddedIcon("MWBToggle.mwb.ico");
+        _iconsAreEmbedded = embeddedOn != null && embeddedOff != null;
+        _iconOn = embeddedOn ?? (Icon)SystemIcons.Application.Clone();
+        _iconOff = embeddedOff ?? (Icon)SystemIcons.Shield.Clone();
 
         // Load INI config (may override _hotkey, _confirmToggle, _soundFeedback)
         LoadConfig();
@@ -75,9 +96,9 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pause5 = new ToolStripMenuItem("5 minutes", null, (_, _) => PauseSharing(5));
         _pause15 = new ToolStripMenuItem("15 minutes", null, (_, _) => PauseSharing(15));
         _pause30 = new ToolStripMenuItem("30 minutes", null, (_, _) => PauseSharing(30));
-        _pauseItem = new ToolStripMenuItem("Pause Sharing");
-        _pauseItem.DropDownItems.AddRange(new ToolStripItem[] { _pause5, _pause15, _pause30 });
-        _menu.Items.Add(_pauseItem);
+        var pauseItem = new ToolStripMenuItem("Pause Sharing");
+        pauseItem.DropDownItems.AddRange(new ToolStripItem[] { _pause5, _pause15, _pause30 });
+        _menu.Items.Add(pauseItem);
 
         // Run at Startup
         _startupItem = new ToolStripMenuItem("Run at Startup", null, (_, _) => ToggleStartup());
@@ -101,8 +122,15 @@ internal sealed class MWBToggleApp : ApplicationContext
                 DoToggle();
         };
 
-        // ── Global hotkey ──────────────────────────────────────────────────
-        _globalHotkey = new GlobalHotkey(_hotkey, DoToggle);
+        // ── Global hotkey (may update _hotkey on fallback) ─────────────────
+        _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle);
+
+        // ── Message window for TaskbarCreated (Explorer restart recovery) ──
+        _messageWindow = new MessageWindow(RegisterWindowMessage("TaskbarCreated"), () =>
+        {
+            _trayIcon.Visible = true;
+            SyncTray();
+        });
 
         // ── Sync timer (every 5 seconds, like AHK SetTimer) ───────────────
         _syncTimer = new System.Windows.Forms.Timer { Interval = 5000 };
@@ -124,7 +152,11 @@ internal sealed class MWBToggleApp : ApplicationContext
     private void DoToggle(bool confirm = true)
     {
         // Warn if MWB isn't running
-        if (Process.GetProcessesByName("PowerToys.MouseWithoutBorders").Length == 0)
+        var processes = Process.GetProcessesByName("PowerToys.MouseWithoutBorders");
+        bool mwbRunning = processes.Length > 0;
+        foreach (var p in processes) p.Dispose();
+
+        if (!mwbRunning)
         {
             ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000);
             return;
@@ -141,7 +173,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         string json;
         try
         {
-            json = File.ReadAllText(_settingsPath, System.Text.Encoding.UTF8);
+            json = File.ReadAllText(_settingsPath, Utf8NoBom);
         }
         catch (IOException)
         {
@@ -189,19 +221,20 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Backup before writing
         try { File.Copy(_settingsPath, _settingsPath + ".bak", overwrite: true); } catch { }
 
-        // Retry loop — file may be briefly locked
+        // Retry loop — file may be briefly locked by MWB
         bool written = false;
         for (int i = 0; i < 3; i++)
         {
             try
             {
-                File.WriteAllText(_settingsPath, json, System.Text.Encoding.UTF8);
+                File.WriteAllText(_settingsPath, json, Utf8NoBom);
                 written = true;
                 break;
             }
             catch (IOException)
             {
-                Thread.Sleep(200);
+                // Yield to message pump instead of blocking the UI thread
+                WaitWithMessagePump(200);
             }
         }
 
@@ -213,20 +246,35 @@ internal sealed class MWBToggleApp : ApplicationContext
             return;
         }
 
-        // Delay for MWB to detect file change
-        Thread.Sleep(300);
+        // Brief delay for MWB to detect file change — pump messages to stay responsive
+        WaitWithMessagePump(300);
         SyncTray();
 
         string newState = currentlyOn ? "OFF" : "ON";
         ShowOSD("MWBToggle: Clipboard & File Transfer " + newState);
 
-        // Optional sound feedback
+        // Optional sound feedback — use kernel32 Beep, not Console.Beep
         if (_soundFeedback)
-            Console.Beep(currentlyOn ? 400 : 800, 150);
+            Beep(currentlyOn ? 400u : 800u, 150);
     }
 
     // Overload so GlobalHotkey can call with no args
     private void DoToggle() => DoToggle(confirm: true);
+
+    /// <summary>
+    /// Wait for the specified duration while pumping the WinForms message loop,
+    /// so the UI stays responsive (tray icon, hotkeys, timers all keep working).
+    /// Replaces Thread.Sleep which would freeze the UI.
+    /// </summary>
+    private static void WaitWithMessagePump(int milliseconds)
+    {
+        var sw = Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < milliseconds)
+        {
+            Application.DoEvents();
+            Thread.Sleep(10); // Small yield to avoid spinning CPU
+        }
+    }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
     // ║  Tray sync                                                           ║
@@ -239,7 +287,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             if (File.Exists(_settingsPath))
             {
-                string json = File.ReadAllText(_settingsPath, System.Text.Encoding.UTF8);
+                string json = File.ReadAllText(_settingsPath, Utf8NoBom);
                 var m = Regex.Match(json, @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*(true|false)");
                 if (m.Success)
                     on = m.Groups[1].Value == "true";
@@ -263,7 +311,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (!File.Exists(_settingsPath)) return;
 
         string json;
-        try { json = File.ReadAllText(_settingsPath, System.Text.Encoding.UTF8); }
+        try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
         catch { return; }
 
         // Only toggle if currently ON
@@ -290,7 +338,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (!File.Exists(_settingsPath)) return;
 
         string json;
-        try { json = File.ReadAllText(_settingsPath, System.Text.Encoding.UTF8); }
+        try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
         catch { return; }
 
         // Clear checkmarks
@@ -313,7 +361,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         if (File.Exists(_powerToysExe))
         {
-            Process.Start(new ProcessStartInfo(_powerToysExe) { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo(_powerToysExe) { UseShellExecute = true });
             return;
         }
 
@@ -323,7 +371,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         if (File.Exists(machinePath))
         {
-            Process.Start(new ProcessStartInfo(machinePath) { UseShellExecute = true });
+            using var _ = Process.Start(new ProcessStartInfo(machinePath) { UseShellExecute = true });
         }
         else
         {
@@ -348,7 +396,9 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
         else
         {
-            CreateShortcut(_startupShortcut, Application.ExecutablePath, AppContext.BaseDirectory);
+            string exePath = Environment.ProcessPath ?? Application.ExecutablePath;
+            string exeDir = Path.GetDirectoryName(exePath) ?? AppContext.BaseDirectory;
+            CreateShortcut(_startupShortcut, exePath, exeDir);
             _startupItem.Checked = true;
             ShowOSD("MWBToggle: Added to startup.");
         }
@@ -360,15 +410,24 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// </summary>
     private static void CreateShortcut(string lnkPath, string targetPath, string workingDir)
     {
-        // Use IWshRuntimeLibrary via late-bound COM — no extra dependency needed
         var shellType = Type.GetTypeFromProgID("WScript.Shell");
         if (shellType == null) return;
-        dynamic shell = Activator.CreateInstance(shellType)!;
-        dynamic shortcut = shell.CreateShortcut(lnkPath);
-        shortcut.TargetPath = targetPath;
-        shortcut.WorkingDirectory = workingDir;
-        shortcut.Description = "MWBToggle";
-        shortcut.Save();
+        dynamic? shell = null;
+        dynamic? shortcut = null;
+        try
+        {
+            shell = Activator.CreateInstance(shellType)!;
+            shortcut = shell.CreateShortcut(lnkPath);
+            shortcut.TargetPath = targetPath;
+            shortcut.WorkingDirectory = workingDir;
+            shortcut.Description = "MWBToggle";
+            shortcut.Save();
+        }
+        finally
+        {
+            if (shortcut != null) Marshal.ReleaseComObject(shortcut);
+            if (shell != null) Marshal.ReleaseComObject(shell);
+        }
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -388,19 +447,60 @@ internal sealed class MWBToggleApp : ApplicationContext
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
-    // ║  OSD notification                                                    ║
+    // ║  OSD notification — tooltip at cursor position                       ║
     // ╚══════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Show a balloon tooltip from the tray icon — replaces AHK's ToolTip-at-cursor OSD.
-    /// Uses BalloonTip which is native to NotifyIcon and non-intrusive.
+    /// Show a lightweight tooltip at the mouse cursor position — matches the AHK
+    /// ToolTip() behavior exactly. Visible on whichever monitor the user is on,
+    /// no Windows toast/Action Center spam.
     /// </summary>
     private void ShowOSD(string message, int durationMs = 3000)
     {
-        _trayIcon.BalloonTipTitle = "MWBToggle";
-        _trayIcon.BalloonTipText = message;
-        _trayIcon.BalloonTipIcon = ToolTipIcon.Info;
-        _trayIcon.ShowBalloonTip(durationMs);
+        // Dispose previous OSD if still showing
+        _osdTimer?.Stop();
+        _osdForm?.Close();
+        _osdForm?.Dispose();
+
+        var form = new Form
+        {
+            FormBorderStyle = FormBorderStyle.None,
+            ShowInTaskbar = false,
+            TopMost = true,
+            StartPosition = FormStartPosition.Manual,
+            BackColor = Color.FromArgb(255, 255, 225), // classic tooltip yellow
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(6, 4, 6, 4)
+        };
+
+        var label = new Label
+        {
+            Text = message,
+            AutoSize = true,
+            ForeColor = Color.Black,
+            Font = SystemFonts.StatusFont ?? SystemFonts.DefaultFont,
+            Padding = new Padding(2)
+        };
+        form.Controls.Add(label);
+
+        // Position at cursor
+        var cursor = Cursor.Position;
+        form.Location = new Point(cursor.X + 16, cursor.Y + 16);
+
+        form.Show();
+        _osdForm = form;
+
+        // Auto-dismiss after duration
+        _osdTimer = new System.Windows.Forms.Timer { Interval = durationMs };
+        _osdTimer.Tick += (_, _) =>
+        {
+            _osdTimer.Stop();
+            form.Close();
+            form.Dispose();
+            if (_osdForm == form) _osdForm = null;
+        };
+        _osdTimer.Start();
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -409,7 +509,11 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void LoadConfig()
     {
-        string iniPath = Path.Combine(AppContext.BaseDirectory, "MWBToggle.ini");
+        // Use the actual .exe location, not AppContext.BaseDirectory
+        // (which points to a temp extraction dir for single-file publish)
+        string exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? Application.ExecutablePath)
+                        ?? AppContext.BaseDirectory;
+        string iniPath = Path.Combine(exeDir, "MWBToggle.ini");
         if (!File.Exists(iniPath)) return;
 
         var config = IniConfig.Load(iniPath);
@@ -434,23 +538,27 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// <summary>
     /// Translate AHK-style hotkey string to human-readable form.
     /// e.g. "^!c" -> "Ctrl + Alt + C"
+    /// Uses a HashSet to deduplicate modifiers (e.g. "^^c" → "Ctrl + C").
     /// </summary>
     internal static string HotkeyToReadable(string hk)
     {
+        var seen = new HashSet<char>();
         string mods = "";
         int i = 0;
 
-        // Consume modifier prefix characters
         while (i < hk.Length && "#^!+".Contains(hk[i]))
         {
-            mods += hk[i] switch
+            if (seen.Add(hk[i]))
             {
-                '#' => "Win + ",
-                '^' => "Ctrl + ",
-                '!' => "Alt + ",
-                '+' => "Shift + ",
-                _ => ""
-            };
+                mods += hk[i] switch
+                {
+                    '#' => "Win + ",
+                    '^' => "Ctrl + ",
+                    '!' => "Alt + ",
+                    '+' => "Shift + ",
+                    _ => ""
+                };
+            }
             i++;
         }
 
@@ -458,17 +566,33 @@ internal sealed class MWBToggleApp : ApplicationContext
         return mods + key;
     }
 
+    /// <summary>
+    /// Load an icon from embedded resources, properly disposing the stream.
+    /// </summary>
     private static Icon? LoadEmbeddedIcon(string resourceName)
     {
-        var stream = typeof(MWBToggleApp).Assembly.GetManifestResourceStream(resourceName);
-        return stream != null ? new Icon(stream) : null;
+        using var stream = typeof(MWBToggleApp).Assembly.GetManifestResourceStream(resourceName);
+        if (stream == null) return null;
+        // Clone the icon so it doesn't depend on the stream lifetime
+        using var tempIcon = new Icon(stream);
+        return (Icon)tempIcon.Clone();
     }
 
     private void ExitApplication()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         _globalHotkey.Dispose();
         _syncTimer.Stop();
+        _syncTimer.Dispose();
         _pauseTimer.Stop();
+        _pauseTimer.Dispose();
+        _messageWindow.DestroyHandle();
+        _osdTimer?.Stop();
+        _osdTimer?.Dispose();
+        _osdForm?.Close();
+        _osdForm?.Dispose();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         Application.Exit();
@@ -476,11 +600,15 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && !_disposed)
         {
+            _disposed = true;
             _globalHotkey.Dispose();
             _syncTimer.Dispose();
             _pauseTimer.Dispose();
+            _messageWindow.DestroyHandle();
+            _osdTimer?.Dispose();
+            _osdForm?.Dispose();
             _trayIcon.Dispose();
             _menu.Dispose();
             _aboutForm?.Dispose();
@@ -488,5 +616,36 @@ internal sealed class MWBToggleApp : ApplicationContext
             _iconOff.Dispose();
         }
         base.Dispose(disposing);
+    }
+
+    // ╔══════════════════════════════════════════════════════════════════════╗
+    // ║  TaskbarCreated message window (Explorer restart recovery)            ║
+    // ╚══════════════════════════════════════════════════════════════════════╝
+
+    /// <summary>
+    /// Invisible window that listens for the TaskbarCreated message,
+    /// which Windows broadcasts when Explorer restarts. This lets us
+    /// re-show the tray icon automatically — mirrors AHK line 83-84.
+    /// </summary>
+    private sealed class MessageWindow : NativeWindow
+    {
+        private readonly uint _taskbarCreatedMsg;
+        private readonly Action _callback;
+
+        public MessageWindow(uint taskbarCreatedMsg, Action callback)
+        {
+            _taskbarCreatedMsg = taskbarCreatedMsg;
+            _callback = callback;
+            CreateHandle(new CreateParams());
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (_taskbarCreatedMsg != 0 && m.Msg == (int)_taskbarCreatedMsg)
+            {
+                _callback();
+            }
+            base.WndProc(ref m);
+        }
     }
 }

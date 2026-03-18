@@ -28,7 +28,12 @@ internal sealed class GlobalHotkey : IDisposable
     private readonly HotkeyWindow _window;
     private bool _disposed;
 
-    public GlobalHotkey(string ahkHotkey, Action callback)
+    /// <summary>
+    /// Register a global hotkey. If registration fails, falls back to Ctrl+Alt+C
+    /// and updates <paramref name="ahkHotkey"/> so the caller's field reflects
+    /// the actual registered hotkey (mirrors AHK line 73: g_hotkey := "^!c").
+    /// </summary>
+    public GlobalHotkey(ref string ahkHotkey, Action callback)
     {
         ParseAhkHotkey(ahkHotkey, out uint modifiers, out uint vk);
 
@@ -41,8 +46,8 @@ internal sealed class GlobalHotkey : IDisposable
                 $"Invalid hotkey: {ahkHotkey}\n\nCheck your MWBToggle.ini [Settings] Hotkey value.\n\nFalling back to Ctrl+Alt+C.",
                 "MWBToggle", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
-            RegisterHotKey(_window.Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT,
-                (uint)Keys.C);
+            ahkHotkey = "^!c";
+            RegisterHotKey(_window.Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT, (uint)Keys.C);
         }
     }
 
@@ -51,7 +56,7 @@ internal sealed class GlobalHotkey : IDisposable
     /// Supports: ^ (Ctrl), ! (Alt), + (Shift), # (Win) prefixes.
     /// Key names: single chars, or names like "F1"-"F12", "Space", "Enter", etc.
     /// </summary>
-    private static void ParseAhkHotkey(string hk, out uint modifiers, out uint vk)
+    internal static void ParseAhkHotkey(string hk, out uint modifiers, out uint vk)
     {
         modifiers = 0;
         int i = 0;
