@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0] — 2026-03-18
+
+### New Features
+- **Independent File Transfer toggle** — new "File Transfer" checkmark in PowerToys submenu controls TransferFile without touching ShareClipboard
+- **Guard rail** — prevents enabling file transfer when clipboard sharing is OFF (ShareClipboard must be ON)
+- **Real-time sync** — FileSystemWatcher updates the File Transfer checkmark when settings change externally
+
 ## [2.1.0] — 2026-03-18
 
 ### New Features
