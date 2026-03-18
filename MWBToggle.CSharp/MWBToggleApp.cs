@@ -28,6 +28,16 @@ internal sealed class MWBToggleApp : ApplicationContext
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern uint RegisterWindowMessage(string lpString);
 
+    // P/Invoke for showing/activating the MWB settings window
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    private const int SW_SHOW = 5;
+    private const int SW_RESTORE = 9;
+
     // ── Configuration (defaults, overridden by MWBToggle.ini) ──────────────
     private string _hotkey = "^!c";   // Ctrl+Alt+C
     private readonly string _settingsPath = Path.Combine(
@@ -457,18 +467,24 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void OpenMwbSettings()
     {
-        string? exe = FindPowerToysExe();
-        if (exe != null)
+        // Find the running MWB process and show its settings window
+        var processes = Process.GetProcessesByName("PowerToys.MouseWithoutBorders");
+        try
         {
-            using var _ = Process.Start(new ProcessStartInfo(exe)
+            foreach (var p in processes)
             {
-                Arguments = "--open-settings=MouseWithoutBorders",
-                UseShellExecute = true
-            });
+                if (p.MainWindowHandle != IntPtr.Zero)
+                {
+                    ShowWindow(p.MainWindowHandle, SW_RESTORE);
+                    SetForegroundWindow(p.MainWindowHandle);
+                    return;
+                }
+            }
+            ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000);
         }
-        else
+        finally
         {
-            ShowOSD("MWBToggle: Could not find PowerToys — open it from the Start menu.", 5000);
+            foreach (var p in processes) p.Dispose();
         }
     }
 
