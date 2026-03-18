@@ -48,15 +48,14 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly ToolStripMenuItem _pause15;
     private readonly ToolStripMenuItem _pause30;
     private readonly GlobalHotkey _globalHotkey;
-    private readonly System.Windows.Forms.Timer _syncTimer;
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
+    private FileSystemWatcher? _fileWatcher;
     private AboutForm? _aboutForm;
 
     // ── Embedded icons ─────────────────────────────────────────────────────
     private readonly Icon _iconOn;
     private readonly Icon _iconOff;
-    private readonly bool _iconsAreEmbedded; // track whether we own the icons
 
     // ── Startup shortcut path ──────────────────────────────────────────────
     private readonly string _startupShortcut = Path.Combine(
@@ -136,10 +135,10 @@ internal sealed class MWBToggleApp : ApplicationContext
             SyncTray();
         });
 
-        // ── Sync timer (every 5 seconds, like AHK SetTimer) ───────────────
-        _syncTimer = new System.Windows.Forms.Timer { Interval = 5000 };
-        _syncTimer.Tick += (_, _) => SyncTray();
-        _syncTimer.Start();
+        // ── File watcher — replaces 5s polling timer ──────────────────────
+        // Only reads settings.json when it actually changes on disk,
+        // instead of polling every 5s (~12,000 reads/day of wasted I/O).
+        StartFileWatcher();
 
         // ── Pause resume timer (one-shot) ──────────────────────────────────
         _pauseTimer = new System.Windows.Forms.Timer();
@@ -283,8 +282,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     // ║  Tray sync                                                           ║
     // ╚══════════════════════════════════════════════════════════════════════╝
 
-    // Pre-compiled regexes — avoids re-parsing pattern strings on hot paths.
-    // SyncTray alone runs every 5s (~84,000 times/week).
+    // Pre-compiled regexes — parsed once at startup, JIT-compiled to IL.
     private static readonly Regex ShareClipboardRegex = new(
         @"""ShareClipboard""\s*:\s*\{\s*""value""\s*:\s*(true|false)",
         RegexOptions.Compiled);
@@ -295,9 +293,44 @@ internal sealed class MWBToggleApp : ApplicationContext
         @"(""TransferFile""\s*:\s*\{\s*""value""\s*:\s*)(true|false)",
         RegexOptions.Compiled);
 
-    // Pre-built tooltip strings — avoids allocating a new string every 5s
+    // Pre-built tooltip strings — zero allocation on sync
     private static readonly string TrayTextOn  = $"MWBToggle v{Version} — Clipboard/Files: ON";
     private static readonly string TrayTextOff = $"MWBToggle v{Version} — Clipboard/Files: OFF";
+
+    /// <summary>
+    /// Watch settings.json for changes instead of polling every 5s.
+    /// FileSystemWatcher uses OS-level notifications (ReadDirectoryChangesW)
+    /// — zero CPU/memory when idle, fires only when MWB actually writes.
+    /// </summary>
+    private void StartFileWatcher()
+    {
+        string? dir = Path.GetDirectoryName(_settingsPath);
+        string file = Path.GetFileName(_settingsPath);
+        if (dir == null || !Directory.Exists(dir)) return;
+
+        _fileWatcher = new FileSystemWatcher(dir, file)
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
+            EnableRaisingEvents = true
+        };
+
+        // FileSystemWatcher fires on a threadpool thread — marshal to UI thread
+        _fileWatcher.Changed += (_, _) =>
+        {
+            try { _trayIcon.BeginInvoke(SyncTray); } catch { }
+        };
+
+        // If the watcher errors (network drive disconnect, etc.), restart it
+        _fileWatcher.Error += (_, _) =>
+        {
+            try
+            {
+                _fileWatcher.EnableRaisingEvents = false;
+                _fileWatcher.EnableRaisingEvents = true;
+            }
+            catch { }
+        };
+    }
 
     private void SyncTray()
     {
@@ -314,7 +347,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
         catch
         {
-            return; // File locked — skip, retry in 5s
+            return; // File locked — watcher will fire again on next write
         }
 
         // Only update tray icon/text when state actually changes
@@ -623,8 +656,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         _disposed = true;
 
         _globalHotkey.Dispose();
-        _syncTimer.Stop();
-        _syncTimer.Dispose();
+        _fileWatcher?.Dispose();
         _pauseTimer.Stop();
         _pauseTimer.Dispose();
         _messageWindow.DestroyHandle();
@@ -643,7 +675,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             _disposed = true;
             _globalHotkey.Dispose();
-            _syncTimer.Dispose();
+            _fileWatcher?.Dispose();
             _pauseTimer.Dispose();
             _messageWindow.DestroyHandle();
             _osdTimer?.Dispose();
