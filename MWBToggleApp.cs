@@ -571,7 +571,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             MinimizeBox = false,
             StartPosition = FormStartPosition.CenterScreen,
             TopMost = true,
-            ClientSize = new Size(300, 100),
+            ClientSize = new Size(300, 115),
             KeyPreview = true
         };
 
