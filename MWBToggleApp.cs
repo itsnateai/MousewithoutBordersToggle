@@ -96,12 +96,12 @@ internal sealed class MWBToggleApp : ApplicationContext
     public MWBToggleApp()
     {
         // Icon loading priority: user's icons on disk > embedded in .exe > system fallback
-        // Users can drop on.ico / mwb.ico next to the .exe to override the built-in icons.
+        // Users can drop on.ico / off.ico next to the .exe to override the built-in icons.
         _iconOn = LoadIconFromDisk(Path.Combine(_exeDir, "on.ico"))
                   ?? LoadEmbeddedIcon("MWBToggle.on.ico")
                   ?? (Icon)SystemIcons.Application.Clone();
-        _iconOff = LoadIconFromDisk(Path.Combine(_exeDir, "mwb.ico"))
-                   ?? LoadEmbeddedIcon("MWBToggle.mwb.ico")
+        _iconOff = LoadIconFromDisk(Path.Combine(_exeDir, "off.ico"))
+                   ?? LoadEmbeddedIcon("MWBToggle.off.ico")
                    ?? (Icon)SystemIcons.Shield.Clone();
 
         // Load INI config (may override _hotkey, _confirmToggle, _soundFeedback)

@@ -4,7 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationIcon>on.ico</ApplicationIcon>
+    <ApplicationIcon>mwbtoggle.ico</ApplicationIcon>
     <AssemblyName>MWBToggle</AssemblyName>
     <RootNamespace>MWBToggle</RootNamespace>
     <Version>2.3.0</Version>
@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="on.ico" LogicalName="MWBToggle.on.ico" />
-    <EmbeddedResource Include="mwb.ico" LogicalName="MWBToggle.mwb.ico" />
+    <EmbeddedResource Include="off.ico" LogicalName="MWBToggle.off.ico" />
   </ItemGroup>
 
 </Project>
