@@ -6,10 +6,10 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 
 ## Features
 
-- **Hotkey toggle**: `Ctrl + Alt + C` (configurable) flips both ShareClipboard and TransferFile
+- **Hotkey toggle**: `Ctrl + Alt + C` (configurable via menu or INI) flips both ShareClipboard and TransferFile
 - **Tray icon**: Green = sharing ON, Red = sharing OFF. Left-click to toggle.
 - **Middle-click**: Opens the MWB settings window directly
-- **Pause sharing**: Temporarily disable for 5, 15, or 30 minutes with auto-resume
+- **Pause sharing**: Temporarily disable for 5 minutes, 30 minutes, or indefinitely with auto-resume
 - **Independent file transfer toggle**: Control TransferFile separately from ShareClipboard
 - **PowerToys submenu**: Quick access to PowerToys MWB settings and the legacy MWB configuration
 - **Run at startup**: One-click toggle to add/remove from Windows Startup folder
@@ -31,12 +31,7 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 
 ### Option 1: Download
 
-Grab the latest release from [Releases](https://github.com/itsnateai/MousewithoutBordersToggle/releases):
-
-| File | Size | Notes |
-|------|------|-------|
-| **MWBToggle.exe** | ~280 KB | Requires [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) |
-| **MWBToggle-standalone.exe** | ~147 MB | No runtime needed, click and go |
+Grab **[MWBToggle.exe](https://github.com/itsnateai/MousewithoutBordersToggle/releases/latest)** from the latest release — single file, self-contained, no .NET runtime needed.
 
 ### Option 2: Build from source
 
