@@ -2,7 +2,7 @@
 
 Toggle **Mouse Without Borders** clipboard and file sharing on/off with a hotkey or tray icon click.
 
-A lightweight system tray companion for [PowerToys Mouse Without Borders](https://learn.microsoft.com/en-us/windows/powertoys/mouse-without-borders) that lets you quickly disable clipboard/file sharing for privacy (passwords, sensitive data) without digging through PowerToys settings.
+A lightweight system tray companion for [PowerToys Mouse Without Borders](https://learn.microsoft.com/en-us/windows/powertoys/mouse-without-borders) that lets you quickly disable clipboard/file sharing for privacy (passwords, sensitive data) — for when you're doing a lot of local copy/paste and don't want it constantly going to the MWB watcher. Also helps with large file copies not lagging you when you're not using the feature. MWB stays enabled — this only manipulates the clipboard server in the background.
 
 ## Features
 
