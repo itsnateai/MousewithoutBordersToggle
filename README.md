@@ -4,6 +4,10 @@ Toggle **Mouse Without Borders** clipboard and file sharing on/off with a hotkey
 
 A lightweight system tray companion for [PowerToys Mouse Without Borders](https://learn.microsoft.com/en-us/windows/powertoys/mouse-without-borders) that lets you quickly disable clipboard/file sharing for privacy (passwords, sensitive data) — for when you're doing a lot of local copy/paste and don't want it constantly going to the MWB watcher. Also helps with large file copies not lagging you when you're not using the feature. MWB stays enabled — this only manipulates the clipboard server in the background.
 
+### One-way sharing
+
+Since MWBToggle runs per-machine, you can disable sharing on one computer while leaving it enabled on another. This creates **one-way sharing** — for example, you can copy from your desktop to your laptop but not the other way around. Handy when you want to keep a work machine's clipboard private while still pushing content to it from a personal machine, or any scenario where you only need sharing in one direction.
+
 ## Features
 
 - **Hotkey toggle**: `Ctrl + Alt + C` (configurable via menu or INI) flips both ShareClipboard and TransferFile
@@ -13,6 +17,7 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 - **Independent file transfer toggle**: Control TransferFile separately from ShareClipboard
 - **PowerToys submenu**: Quick access to PowerToys MWB settings and the legacy MWB configuration
 - **Run at startup**: One-click toggle to add/remove from Windows Startup folder
+- **One-way sharing**: Disable sharing on one machine while keeping it on another for directional clipboard/file transfer
 - **Zero polling**: Uses OS-level FileSystemWatcher — no CPU usage when idle
 - **On-screen display**: Floating tooltip at cursor position (no toast notification spam)
 
