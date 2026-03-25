@@ -15,7 +15,7 @@ namespace MWBToggle;
 /// </summary>
 internal sealed class MWBToggleApp : ApplicationContext
 {
-    internal const string Version = "2.3.1";
+    internal static readonly string Version = typeof(MWBToggleApp).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     // UTF-8 without BOM — matches AHK's "UTF-8-RAW"
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
