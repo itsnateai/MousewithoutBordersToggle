@@ -113,7 +113,6 @@ It toggles the `ShareClipboard` and `TransferFile` values using regex replacemen
 | `AboutForm.cs` | About dialog with GitHub link |
 | `IniConfig.cs` | Minimal INI file reader |
 | `on.ico` / `mwb.ico` | Tray icons (embedded as resources) |
-| `legacy/MWBToggle.ahk` | Original AutoHotkey v2 script (archived) |
 
 ## License
 
