@@ -54,8 +54,8 @@ internal sealed class AboutForm : Form
         var githubBtn = new Button
         {
             Text = "GitHub",
-            Size = new Size(90, 30),
-            Location = new Point(60, 120)
+            Size = new Size(80, 30),
+            Location = new Point(25, 120)
         };
         githubBtn.Click += (_, _) =>
         {
@@ -64,11 +64,24 @@ internal sealed class AboutForm : Form
         };
         Controls.Add(githubBtn);
 
+        var updateBtn = new Button
+        {
+            Text = "Update",
+            Size = new Size(70, 30),
+            Location = new Point(115, 120)
+        };
+        updateBtn.Click += (_, _) =>
+        {
+            using var dlg = new UpdateDialog();
+            dlg.ShowDialog(this);
+        };
+        Controls.Add(updateBtn);
+
         var closeBtn = new Button
         {
             Text = "Close",
-            Size = new Size(90, 30),
-            Location = new Point(160, 120)
+            Size = new Size(80, 30),
+            Location = new Point(195, 120)
         };
         closeBtn.Click += (_, _) => Hide();
         Controls.Add(closeBtn);
