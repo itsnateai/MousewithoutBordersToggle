@@ -11,17 +11,34 @@ internal static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        bool isAfterUpdate = args.Contains("--after-update");
+
         var mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
         {
-            // Another instance already holds the mutex — exit silently.
-            mutex.Dispose();
-            return;
+            if (isAfterUpdate)
+            {
+                // Post-update relaunch: old instance is still shutting down.
+                // Wait for it to release the mutex before proceeding.
+                mutex.Dispose();
+                Thread.Sleep(1500);
+                mutex = new Mutex(true, MutexName, out createdNew);
+                if (!createdNew)
+                {
+                    // Still held after 1.5s — give up
+                    mutex.Dispose();
+                    return;
+                }
+            }
+            else
+            {
+                mutex.Dispose();
+                return;
+            }
         }
 
         try
         {
-            bool isAfterUpdate = args.Contains("--after-update");
             UpdateDialog.CleanupUpdateArtifacts();
 
             ApplicationConfiguration.Initialize();
