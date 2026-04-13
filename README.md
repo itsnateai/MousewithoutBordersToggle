@@ -34,20 +34,13 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 
 Grab **[MWBToggle.exe](https://github.com/itsnateai/MousewithoutBordersToggle/releases/latest)** from the latest release — single file, self-contained, no .NET runtime needed.
 
-### Option 2: Scoop (coming soon)
-
-```powershell
-scoop bucket add extras
-scoop install mwbtoggle
-```
-
-### Option 3: WinGet (coming soon)
+### Option 2: WinGet (coming soon)
 
 ```powershell
 winget install itsnateai.MWBToggle
 ```
 
-### Option 4: Build from source
+### Option 3: Build from source
 
 ```bash
 git clone https://github.com/itsnateai/MousewithoutBordersToggle.git
