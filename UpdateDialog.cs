@@ -136,6 +136,20 @@ internal sealed class UpdateDialog : Form
     private async Task CheckForUpdateAsync()
     {
         _cts = new CancellationTokenSource();
+
+        // Winget-managed installs should use `winget upgrade` instead of self-update
+        if (IsWingetManaged())
+        {
+            _marqueeTimer.Stop();
+            _progressOuter.Visible = false;
+            _lblStatus.Text = "This installation is managed by winget.";
+            _lblDetail.Text = "Use: winget upgrade itsnateai.MWBToggle";
+            _btnAction.Visible = false;
+            _btnCancel.Text = "OK";
+            _btnCancel.Location = new Point(170, 112);
+            return;
+        }
+
         _marqueeTimer.Start();
 
         try
@@ -259,6 +273,14 @@ internal sealed class UpdateDialog : Form
 
         try
         {
+            // Validate download URL origin before fetching
+            if (!_downloadUrl!.StartsWith("https://github.com/itsnateai/", StringComparison.OrdinalIgnoreCase) &&
+                !_downloadUrl!.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
+            {
+                ShowError("Update failed: download URL is not from the expected source.", _downloadUrl!);
+                return;
+            }
+
             if (!await DownloadFileAsync(_downloadUrl!, newPath))
                 return;
 
@@ -382,6 +404,10 @@ internal sealed class UpdateDialog : Form
     }
 
     // ─── Static Helpers (called from Program.cs) ────────────────
+
+    /// <summary>Detect whether the app was installed via winget (lives under WinGet\Packages).</summary>
+    internal static bool IsWingetManaged() =>
+        (Environment.ProcessPath ?? "").Contains(@"Microsoft\WinGet\Packages", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Clean up .old/.new artifacts from a previous update.</summary>
     internal static void CleanupUpdateArtifacts()

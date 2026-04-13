@@ -71,6 +71,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
     private FileSystemWatcher? _fileWatcher;
+    private System.Windows.Forms.Timer? _debounceTimer;
     private AboutForm? _aboutForm;
 
     // ── Embedded icons ─────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly string _startupShortcut = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.Startup),
         "MWBToggle.lnk");
+    private string _configDir = null!; // Resolved in LoadConfig()
 
     // ── OSD tooltip ────────────────────────────────────────────────────────
     private Form? _osdForm;
@@ -193,6 +195,9 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pauseTimer = new System.Windows.Forms.Timer();
         _pauseTimer.Tick += (_, _) => ResumeSharing();
 
+        // Validate startup shortcut target (self-healing after winget upgrades)
+        ValidateStartupShortcut();
+
         // Initial tray sync
         SyncTray();
     }
@@ -217,6 +222,14 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (!File.Exists(_settingsPath))
         {
             ShowOSD("MWBToggle: Settings file not found — check PowerToys MWB is configured.", 5000);
+            return;
+        }
+
+        // Reject files over 1MB — valid MWB settings.json is <5KB
+        var toggleFileInfo = new FileInfo(_settingsPath);
+        if (toggleFileInfo.Length > 1_000_000)
+        {
+            ShowOSD("MWBToggle: Settings file is unexpectedly large — aborting.", 5000);
             return;
         }
 
@@ -353,6 +366,14 @@ internal sealed class MWBToggleApp : ApplicationContext
         string file = Path.GetFileName(_settingsPath);
         if (dir == null || !Directory.Exists(dir)) return;
 
+        // Create debounce timer once — rapid FileSystemWatcher events restart it
+        _debounceTimer = new System.Windows.Forms.Timer { Interval = 300 };
+        _debounceTimer.Tick += (_, _) =>
+        {
+            _debounceTimer.Stop();
+            SyncTray();
+        };
+
         _fileWatcher = new FileSystemWatcher(dir, file)
         {
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size,
@@ -362,7 +383,15 @@ internal sealed class MWBToggleApp : ApplicationContext
         // FileSystemWatcher fires on a threadpool thread — marshal to UI thread
         _fileWatcher.Changed += (_, _) =>
         {
-            try { _menu.BeginInvoke(SyncTray); } catch { }
+            try
+            {
+                _menu.BeginInvoke(() =>
+                {
+                    _debounceTimer?.Stop();
+                    _debounceTimer?.Start();
+                });
+            }
+            catch { }
         };
 
         // If the watcher errors (network drive disconnect, etc.), restart it
@@ -385,6 +414,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             if (File.Exists(_settingsPath))
             {
+                // Reject files over 1MB — valid MWB settings.json is <5KB
+                var fileInfo = new FileInfo(_settingsPath);
+                if (fileInfo.Length > 1_000_000) return;
+
                 string json = File.ReadAllText(_settingsPath, Utf8NoBom);
                 var cm = ShareClipboardRegex.Match(json);
                 if (cm.Success)
@@ -422,6 +455,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private void PauseSharing(int minutes)
     {
         if (!File.Exists(_settingsPath)) return;
+        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
@@ -456,6 +490,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pauseTimer.Stop();
 
         if (!File.Exists(_settingsPath)) return;
+        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
@@ -654,6 +689,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private void ToggleTransferFile()
     {
         if (!File.Exists(_settingsPath)) return;
+        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
@@ -750,6 +786,38 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
     }
 
+    /// <summary>
+    /// Self-heal the startup shortcut if the exe has moved (e.g. after a winget upgrade).
+    /// Reads the existing .lnk TargetPath and updates it if it doesn't match the current exe.
+    /// </summary>
+    private void ValidateStartupShortcut()
+    {
+        if (!File.Exists(_startupShortcut)) return;
+
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType == null) return;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            try
+            {
+                dynamic shortcut = shell.CreateShortcut(_startupShortcut);
+                try
+                {
+                    var targetPath = (string)shortcut.TargetPath;
+                    var currentPath = Environment.ProcessPath ?? "";
+                    if (!targetPath.Equals(currentPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        CreateShortcut(_startupShortcut, currentPath, _exeDir);
+                    }
+                }
+                finally { Marshal.FinalReleaseComObject(shortcut); }
+            }
+            finally { Marshal.FinalReleaseComObject(shell); }
+        }
+        catch { /* Best-effort — don't crash the app over a shortcut */ }
+    }
+
     // ╔══════════════════════════════════════════════════════════════════════╗
     // ║  About                                                               ║
     // ╚══════════════════════════════════════════════════════════════════════╝
@@ -841,7 +909,40 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void LoadConfig()
     {
-        string iniPath = Path.Combine(_exeDir, "MWBToggle.ini");
+        // Resolve INI path with fallback for winget portable installs:
+        // 1. Next to exe (backwards compat / traditional portable)
+        // 2. %APPDATA%\MWBToggle\ (roaming — winget or multi-user)
+        // 3. If winget-managed → create in %APPDATA%\MWBToggle\
+        // 4. Else → create next to exe (traditional portable)
+        string portableIni = Path.Combine(_exeDir, "MWBToggle.ini");
+        string appDataDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "MWBToggle");
+        string appDataIni = Path.Combine(appDataDir, "MWBToggle.ini");
+
+        string iniPath;
+        if (File.Exists(portableIni))
+        {
+            iniPath = portableIni;
+            _configDir = _exeDir;
+        }
+        else if (File.Exists(appDataIni))
+        {
+            iniPath = appDataIni;
+            _configDir = appDataDir;
+        }
+        else if (UpdateDialog.IsWingetManaged())
+        {
+            Directory.CreateDirectory(appDataDir);
+            iniPath = appDataIni;
+            _configDir = appDataDir;
+        }
+        else
+        {
+            iniPath = portableIni;
+            _configDir = _exeDir;
+        }
+
         if (!File.Exists(iniPath)) return;
 
         var config = IniConfig.Load(iniPath);
@@ -937,6 +1038,8 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         _globalHotkey.Dispose();
         _fileWatcher?.Dispose();
+        _debounceTimer?.Stop();
+        _debounceTimer?.Dispose();
         _pauseTimer.Stop();
         _pauseTimer.Dispose();
         _messageWindow.DestroyHandle();
@@ -956,6 +1059,8 @@ internal sealed class MWBToggleApp : ApplicationContext
             _disposed = true;
             _globalHotkey.Dispose();
             _fileWatcher?.Dispose();
+            _debounceTimer?.Stop();
+            _debounceTimer?.Dispose();
             _pauseTimer.Dispose();
             _messageWindow.DestroyHandle();
             _osdTimer?.Dispose();
