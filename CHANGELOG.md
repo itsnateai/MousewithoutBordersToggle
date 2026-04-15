@@ -1,5 +1,7 @@
 # Changelog
 
+*LTR — Long-Term Release. Feature-complete; maintenance-only updates.*
+
 ## [2.3.0] — 2026-03-18
 
 ### New Features
