@@ -1,6 +1,6 @@
 # MWBToggle
 
-*LTR — Long-Term Release. Feature-complete; maintenance-only updates.*
+*LTR — Long-Term Release · one-click self-update built in.*
 
 Toggle **Mouse Without Borders** clipboard and file sharing on/off with a hotkey or tray icon click.
 

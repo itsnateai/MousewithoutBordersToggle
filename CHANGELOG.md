@@ -1,6 +1,6 @@
 # Changelog
 
-*LTR — Long-Term Release. Feature-complete; maintenance-only updates.*
+*LTR — Long-Term Release · one-click self-update built in.*
 
 ## [2.3.0] — 2026-03-18
 
