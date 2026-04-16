@@ -36,10 +36,14 @@ jobs:
 
       - name: Prepare assets
         shell: bash
-        run: cp bin/Release/net8.0-windows/win-x64/publish/MWBToggle.exe MWBToggle.exe
+        run: |
+          cp bin/Release/net8.0-windows/win-x64/publish/MWBToggle.exe MWBToggle.exe
+          sha256sum MWBToggle.exe > SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: MWBToggle.exe
+          files: |
+            MWBToggle.exe
+            SHA256SUMS
