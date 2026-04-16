@@ -38,11 +38,14 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 
 Grab **[MWBToggle.exe](https://github.com/itsnateai/MousewithoutBordersToggle/releases/latest)** from the latest release — single file, self-contained, no .NET runtime needed.
 
-### Option 2: WinGet
+### Option 2: WinGet (recommended)
 
 ```powershell
 winget install itsnateai.MWBToggle
+winget upgrade itsnateai.MWBToggle   # later, to update
 ```
+
+WinGet installs stay current automatically. The in-app **Update** button detects WinGet installs and points you back at `winget upgrade` instead of trying to overwrite the managed binary.
 
 ### Option 3: Build from source
 
@@ -51,13 +54,17 @@ git clone https://github.com/itsnateai/MousewithoutBordersToggle.git
 cd MousewithoutBordersToggle
 
 # Framework-dependent (~280KB, requires .NET 8 runtime)
-dotnet publish -c Release
+dotnet publish -c Release -r win-x64
 
-# Self-contained (~147MB, no runtime needed)
-dotnet publish -c Release --self-contained true
+# Self-contained single-file (~147MB, no runtime needed) — matches the release exe
+dotnet publish -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
 ```
 
 Output: `bin/Release/net8.0-windows/win-x64/publish/MWBToggle.exe`
+
+### Self-update integrity
+
+Releases publish a `SHA256SUMS` file alongside the exe. The in-app **Update** button downloads it, verifies the hash, and fails closed if anything is missing or doesn't match. A `.ok` sentinel rolls back to the prior version if the new exe doesn't successfully start.
 
 ## Customization
 
