@@ -2,6 +2,61 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.0] — 2026-04-16
+
+### Reliability
+- **Holding the hotkey is safe.** The toggle fires once per press, even if you lean on the key — no more rapid-fire flipping.
+- **Your MWB config can't get corrupted mid-toggle.** A crash, power loss, or antivirus lock in the middle of a toggle can no longer leave the settings file half-written, and the backup reliably holds the previous good state.
+- **Catches a silent MWB schema change.** If a future PowerToys update changes how it stores file-transfer state, MWBToggle now tells you the toggle didn't land instead of pretending it did.
+- **Double-tapping the hotkey during a toggle is harmless.** The second press is ignored until the first one finishes.
+
+### Pause
+- **Pause survives sleep.** If you pause sharing for 30 minutes and your laptop goes to sleep for two hours, sharing resumes the moment you wake up — not 30 minutes after.
+- **Manually toggling no longer fights an active pause.** Hitting the hotkey or menu item during a pause cancels the auto-resume so it can't flip sharing off unexpectedly later. If the toggle is cancelled from the confirm dialog, the pause is preserved.
+
+### Tray & watcher
+- **Works even if PowerToys isn't installed yet.** Install MWBToggle first, set up PowerToys later — the tray icon catches up the moment MWB's settings file appears, no restart required.
+
+### Hotkey picker
+- **Win-key combos can be captured.** Hotkeys like `Win+C` or `Win+Alt+X` now work in the picker dialog, not just in the INI file.
+- **Clear feedback on unsupported keys.** Punctuation and unusual keys no longer quietly rebind to Ctrl+Alt+C — the dialog tells you to use a letter, digit, or F-key.
+
+### Self-update
+- **Every download is now integrity-checked.** Updates verify a published SHA256 checksum before swapping the exe; if the check fails or can't run, the update aborts cleanly and tells you to try again (or use `winget upgrade`).
+- **Safer rollback on a bad update.** If a fresh version crashes on first launch, the previous version is still sitting on disk next to it as `MWBToggle.exe.old` — rename it back to recover manually.
+
+### Troubleshooting
+- **There's finally a log.** If something doesn't work, open the About dialog and click *Open log folder* — a small rolling log at `%LOCALAPPDATA%\MWBToggle\` captures what went wrong. Previously silent failures (pause reads, settings writes, startup shortcut, update paths) now leave a trail.
+
+### Multi-user / shared PCs
+- **Each Windows session runs its own instance cleanly.** Another user on the same PC can't block your tray icon from starting.
+
+## [2.4.3] — 2026-04-15
+
+### Fixed
+- **Updates can be integrity-checked.** MWBToggle now validates a published checksum on downloaded updates before swapping the exe. (Checksums weren't actually published until 2.5.0; this release shipped the client-side plumbing for it.)
+
+## [2.4.2] — 2026-04-15
+
+### Fixed
+- **Post-update relaunch is more reliable.** The fresh instance after an upgrade no longer sometimes exits immediately because the old one hasn't finished shutting down yet.
+
+## [2.4.1] — 2026-04-13
+
+### Fixed
+- **WinGet installs remember their config.** When installed via winget, the settings file now lives in `%APPDATA%\MWBToggle\` so it survives upgrades and reinstalls. Portable installs still keep it next to the exe.
+- **Small distribution hardening** — extra checks on where updates are downloaded from and where they're applied.
+
+## [2.4.0] — 2026-04-13
+
+### New Features
+- **One-click self-update built in.** Open *About* → *Update* and MWBToggle checks GitHub, shows you what's new, downloads it with a progress bar, and relaunches into the new version. No more manual download-and-replace.
+- **Post-update confirmation toast** — brief floating message near the tray after a successful upgrade so you know it worked.
+
+### Changed
+- **Legacy AutoHotkey script removed from the repo.** Only referenced during the 2.x rewrite; no longer needed.
+- **Single version source of truth** — the version displayed in the About dialog, the tray tooltip, and `winget list` all match automatically.
+
 ## [2.3.0] — 2026-03-18
 
 ### New Features

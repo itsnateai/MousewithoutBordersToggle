@@ -29,13 +29,15 @@ dotnet publish -c Release --self-contained true
 
 | File | Purpose |
 |------|---------|
-| `Program.cs` | Entry point — single-instance Mutex enforcement |
-| `MWBToggleApp.cs` | Main tray app — toggle logic, FileSystemWatcher, pause timers, OSD, config loading |
-| `GlobalHotkey.cs` | Win32 RegisterHotKey wrapper with AHK-style hotkey string parsing |
+| `Program.cs` | Entry point — per-session `Local\` mutex, post-update relaunch handoff |
+| `MWBToggleApp.cs` | Main tray app — toggle logic, FileSystemWatcher, pause timers, OSD, config |
+| `GlobalHotkey.cs` | Win32 RegisterHotKey wrapper (MOD_NOREPEAT) with AHK-style parsing |
+| `UpdateDialog.cs` | Self-update UI, SHA256 verify, torn-state + `.ok` sentinel rollback |
+| `Logger.cs` | Append-only log at `%LOCALAPPDATA%\MWBToggle\mwbtoggle.log` (100 KB cap) |
 | `IniConfig.cs` | Minimal INI file reader for `MWBToggle.ini` |
-| `AboutForm.cs` | About dialog with GitHub link |
+| `AboutForm.cs` | About dialog with GitHub + Update + Open-log-folder links |
 | `MWBToggle.csproj` | .NET 8 WinForms project, embedded icons |
-| `on.ico` / `mwb.ico` | Tray icons (green=ON, red=OFF), embedded as resources |
+| `on.ico` / `off.ico` | Tray icons (green=ON, red=OFF), embedded as resources |
 | `legacy/MWBToggle.ahk` | Original AHK v2 script (archived, not used) |
 
 ## How It Works
@@ -59,12 +61,16 @@ Optional `MWBToggle.ini` next to the exe:
 
 - OSD uses floating tooltip at cursor (no toast/TrayTip spam)
 - Left-click tray icon = toggle, middle-click = MWB settings
-- Pause feature: temporary disable with auto-resume (5/15/30 min)
-- Run at startup via Windows Startup folder shortcut (not registry)
-- Dual release: framework-dependent (~280KB) + self-contained (~147MB)
+- Pause feature: temporary disable with auto-resume (5 min / 30 min / Until resumed). Pause tracks absolute UTC time and survives sleep via `SystemEvents.PowerModeChanged`.
+- Manual toggle (hotkey or menu) clears any active pause.
+- settings.json writes are atomic: `.tmp` → `File.Replace(tmp, settings, .bak)`.
+- FileSystemWatcher has a short self-write suppression window; if the settings dir doesn't exist yet, a bootstrap watcher waits for it to appear.
+- Run at startup via Windows Startup folder shortcut (not registry).
+- Self-update: SHA256-verified download, `.old` kept until new version writes `.ok` sentinel on successful startup.
+- Dual release: framework-dependent (~280KB) + self-contained (~147MB).
 
 ## Status
 
-**v2.3.0 — Current release**
+**v2.5.0 — LTR (hardened)**
 
-Menu restructure, hotkey picker dialog, single-click toggle, unlimited pause duration. All audit items resolved.
+Deep audit resolved: MOD_NOREPEAT on hotkey, atomic settings writes, TransferFile regex verify, hotkey picker handles Win-modifier + rejects unsupported keys with a visible error, pause timer is sleep-aware and cleared by manual toggles, watcher bootstraps from parent dir when MWB isn't installed yet, per-session mutex (prevents cross-session DoS), SHA256SUMS published by release workflow, rollback sentinel, tiny rolling log at `%LOCALAPPDATA%\MWBToggle\`.
