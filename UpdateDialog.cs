@@ -330,10 +330,24 @@ internal sealed class UpdateDialog : Form
                     }
                 }
                 catch (OperationCanceledException) { throw; }
-                catch
+                catch (Exception ex)
                 {
-                    // SHA256SUMS fetch failed — defense-in-depth, proceed without verification
+                    // SHA256SUMS fetch failed — fail closed. The hash is the primary integrity
+                    // control (the exe is not Authenticode-signed), so we never ship an update
+                    // we couldn't verify.
+                    Logger.Warn($"SHA256SUMS fetch failed: {ex.Message}");
+                    TryDelete(newPath);
+                    ShowError("Hash verification failed.",
+                        "Could not fetch SHA256SUMS. Try again, or run `winget upgrade`.");
+                    return;
                 }
+            }
+            else
+            {
+                // Release did not publish SHA256SUMS — log and continue. Older releases
+                // (<v2.5.0) predate the workflow publishing a sums file; winget is the
+                // preferred upgrade path for those.
+                Logger.Warn("No SHA256SUMS asset on this release — proceeding without hash verify.");
             }
 
             _lblStatus.Text = "Applying update...";
@@ -462,6 +476,11 @@ internal sealed class UpdateDialog : Form
         (Environment.ProcessPath ?? "").Contains(@"Microsoft\WinGet\Packages", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Clean up .old/.new artifacts from a previous update.</summary>
+    /// <remarks>
+    /// Rollback safety: .old is kept until the new version proves itself by writing
+    /// a .ok sentinel (see <see cref="WriteStartupSentinel"/>). If the new exe crashes
+    /// before the sentinel is written, .old survives for manual recovery.
+    /// </remarks>
     internal static void CleanupUpdateArtifacts()
     {
         var exePath = Environment.ProcessPath;
@@ -474,16 +493,42 @@ internal sealed class UpdateDialog : Form
             var oldPath = exePath + ".old";
             if (File.Exists(oldPath))
             {
-                try { File.Move(oldPath, exePath); } catch { }
+                try { File.Move(oldPath, exePath); }
+                catch (Exception ex) { Logger.Warn($"Torn-state restore failed: {ex.Message}"); }
             }
             return;
         }
 
-        foreach (var suffix in new[] { ".old", ".new" })
+        // Always safe to remove a stray .new (half-downloaded from a cancelled update).
+        TryDelete(exePath + ".new");
+
+        // Only remove .old once the new version has successfully started once (sentinel present).
+        var okSentinel = exePath + ".ok";
+        if (File.Exists(okSentinel))
         {
-            var path = exePath + suffix;
-            if (!File.Exists(path)) continue;
-            try { File.Delete(path); } catch { /* will be cleaned on next launch */ }
+            TryDelete(exePath + ".old");
+        }
+    }
+
+    /// <summary>
+    /// Write a .ok sentinel next to the exe once the new version has successfully
+    /// reached its running state. CleanupUpdateArtifacts uses this to decide whether
+    /// it's safe to remove .old — if the new exe crashes before the sentinel is
+    /// written, .old persists and the user can rename it to recover manually.
+    /// </summary>
+    internal static void WriteStartupSentinel()
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exePath)) return;
+            var sentinel = exePath + ".ok";
+            if (!File.Exists(sentinel))
+                File.WriteAllText(sentinel, DateTime.UtcNow.ToString("O"));
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"WriteStartupSentinel: {ex.Message}");
         }
     }
 
