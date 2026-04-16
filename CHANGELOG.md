@@ -31,24 +31,24 @@
 ## [2.0.0] — 2026-03-18
 
 ### New Features
-- **C# port** — complete rewrite from AutoHotkey v2 to C# (.NET 8 Windows Forms) with full feature parity
-- **FileSystemWatcher** — replaced 5-second polling timer with OS-level file change notifications (zero CPU when idle)
-- **Embedded icons** — tray icons are compiled into the .exe, no external .ico files needed (still supports disk overrides)
+- **C# port** — complete rewrite from AutoHotkey v2 to C# (.NET 8 Windows Forms) with full feature parity.
+- **Instant state updates** — the tray now reflects changes the moment you flip ShareClipboard in PowerToys, instead of on a 5-second delay. Zero CPU when idle.
+- **Embedded icons** — tray icons are built into the .exe, no external `.ico` files needed (custom icons on disk still override).
 
 ### Performance
-- **Zero idle allocations** — pre-compiled regexes, cached tray text, state-change-only icon updates
-- **No mouse interference** — AHK's system-wide hooks are gone; C# uses standard Win32 RegisterHotKey
+- **Zero idle overhead** — the tray sits quietly in the background and only does work when something actually changes.
+- **No mouse interference** — scroll wheels and clicks in other apps are no longer affected while MWBToggle is running.
 
 ### Bug Fixes
-- **Memory leaks** — all Process handles properly disposed (GetProcessesByName, GetCurrentProcess, Process.Start)
-- **Build fix** — NotifyIcon.BeginInvoke → ContextMenuStrip.BeginInvoke for FileSystemWatcher thread marshaling
-- **No more popups** — replaced all MessageBox.Show error dialogs with floating OSD tooltips (matches AHK ToolTip pattern)
+- **No memory creep over long sessions.**
+- **Clean build and clean background updates** — the tray no longer gets into a weird state when PowerToys writes its settings file while the menu is open.
+- **No more pop-up error dialogs** — errors now appear as a brief floating tooltip instead of a modal you have to dismiss.
 
 ### Code Quality
-- **Icon fallback chain** — user disk icons > embedded resources > system fallback
-- **Explorer restart recovery** — TaskbarCreated message handler re-shows tray icon
-- **COM cleanup** — WScript.Shell properly released via Marshal.ReleaseComObject
-- **Single-instance** — mutex + kill previous process (matches AHK #SingleInstance Force)
+- **Icon fallback chain** — your custom icons on disk > built-in icons > a system fallback, so the tray is never blank.
+- **Tray icon recovers after Explorer restarts.**
+- **No resource leak during startup shortcut handling.**
+- **Only one copy runs at a time** — launching MWBToggle twice cleanly replaces the old instance instead of leaving two tray icons fighting.
 
 ## [1.5.0] — 2026-03-14
 
