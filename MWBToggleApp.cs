@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace MWBToggle;
 
@@ -43,6 +44,12 @@ internal sealed class MWBToggleApp : ApplicationContext
     [DllImport("user32.dll")]
     private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    // Win state isn't exposed in Keys.Modifiers (only Ctrl/Alt/Shift). Read directly.
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
+    private const int VK_LWIN = 0x5B;
+    private const int VK_RWIN = 0x5C;
+
     // ── Configuration (defaults, overridden by MWBToggle.ini) ──────────────
     private string _hotkey = "^!c";   // Ctrl+Alt+C
     private readonly string _settingsPath = Path.Combine(
@@ -56,6 +63,13 @@ internal sealed class MWBToggleApp : ApplicationContext
     private bool _middleClickOpensMwbSettings = true;
     private bool _singleClickToggles = true;
     private bool _disposed;
+    private bool _toggleInProgress;
+    // Window during which FileSystemWatcher events on settings.json are ours and should be ignored.
+    private DateTime _suppressWatcherUntilUtc;
+    // Absolute UTC time when a pause should auto-resume. null = no active timed pause.
+    // Using absolute time (instead of relying on WinForms Timer.Interval) makes pause
+    // survive OS sleep: PowerModeChanged.Resume recomputes the remaining interval.
+    private DateTime? _pauseResumeAtUtc;
 
     // ── UI ──────────────────────────────────────────────────────────────────
     private readonly NotifyIcon _trayIcon;
@@ -193,13 +207,37 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // ── Pause resume timer (one-shot) ──────────────────────────────────
         _pauseTimer = new System.Windows.Forms.Timer();
-        _pauseTimer.Tick += (_, _) => ResumeSharing();
+        _pauseTimer.Tick += (_, _) =>
+        {
+            // Tick may fire earlier than expected if we recomputed the interval after
+            // wake — check absolute time and only fire if we've truly reached the deadline.
+            if (_pauseResumeAtUtc is DateTime due && DateTime.UtcNow >= due)
+            {
+                ResumeSharing();
+            }
+            else if (_pauseResumeAtUtc is DateTime pending)
+            {
+                _pauseTimer.Stop();
+                _pauseTimer.Interval = Math.Max(1000, (int)(pending - DateTime.UtcNow).TotalMilliseconds);
+                _pauseTimer.Start();
+            }
+        };
+
+        // Re-check pause deadline on wake-from-sleep. WinForms Timer.Interval is
+        // wall-clock-blind — without this, a 30 min pause through a 2 hr sleep would
+        // resume 30 min after wake instead of the moment we woke up.
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
         // Validate startup shortcut target (self-healing after winget upgrades)
         ValidateStartupShortcut();
 
         // Initial tray sync
         SyncTray();
+
+        // Tell the self-updater we reached running state — safe to drop .old rollback
+        // on the next launch. If we crashed before this, .old persists for recovery.
+        UpdateDialog.WriteStartupSentinel();
+        Logger.Info($"MWBToggle v{Version} started.");
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -208,115 +246,155 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void DoToggle(bool confirm = true)
     {
-        // Warn if MWB isn't running
-        var processes = Process.GetProcessesByName("PowerToys.MouseWithoutBorders");
-        bool mwbRunning = processes.Length > 0;
-        foreach (var p in processes) p.Dispose();
-
-        if (!mwbRunning)
-        {
-            ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000);
-            return;
-        }
-
-        if (!File.Exists(_settingsPath))
-        {
-            ShowOSD("MWBToggle: Settings file not found — check PowerToys MWB is configured.", 5000);
-            return;
-        }
-
-        // Reject files over 1MB — valid MWB settings.json is <5KB
-        var toggleFileInfo = new FileInfo(_settingsPath);
-        if (toggleFileInfo.Length > 1_000_000)
-        {
-            ShowOSD("MWBToggle: Settings file is unexpectedly large — aborting.", 5000);
-            return;
-        }
-
-        // Read JSON — file may be briefly locked by MWB
-        string json;
+        // Reentrancy guard — WaitWithMessagePump pumps messages, which can dispatch
+        // another WM_HOTKEY (or tray click) into DoToggle before the current one completes.
+        if (_toggleInProgress) return;
+        _toggleInProgress = true;
         try
         {
-            json = File.ReadAllText(_settingsPath, Utf8NoBom);
-        }
-        catch (IOException)
-        {
-            ShowOSD("MWBToggle: Could not read settings.json — file may be locked. Try again.", 5000);
-            return;
-        }
+            var processes = Process.GetProcessesByName("PowerToys.MouseWithoutBorders");
+            bool mwbRunning = processes.Length > 0;
+            foreach (var p in processes) p.Dispose();
 
-        // Detect current ShareClipboard state
-        var match = ShareClipboardRegex.Match(json);
-        if (!match.Success)
-        {
-            ShowOSD("MWBToggle: ShareClipboard not found in settings.json — run MWB at least once.", 5000);
-            return;
-        }
-
-        bool currentlyOn = match.Groups[1].Value == "true";
-
-        // Optional confirmation
-        if (_confirmToggle && confirm)
-        {
-            string prompt = "Turn clipboard/file sharing " + (currentlyOn ? "OFF" : "ON") + "?";
-            if (MessageBox.Show(prompt, "MWBToggle", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
-                != DialogResult.Yes)
+            if (!mwbRunning)
+            {
+                ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000);
                 return;
-        }
+            }
 
-        // Flip both values
-        string newVal = currentlyOn ? "false" : "true";
-        json = ShareClipboardReplaceRegex.Replace(json, "$1" + newVal);
-        json = TransferFileReplaceRegex.Replace(json, "$1" + newVal);
+            if (!File.Exists(_settingsPath))
+            {
+                ShowOSD("MWBToggle: Settings file not found — check PowerToys MWB is configured.", 5000);
+                return;
+            }
 
-        // Verify replacement took effect
-        var verify = ShareClipboardRegex.Match(json);
-        if (!verify.Success || verify.Groups[1].Value != newVal)
-        {
-            ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
-            return;
-        }
+            // Reject files over 1MB — valid MWB settings.json is <5KB
+            var toggleFileInfo = new FileInfo(_settingsPath);
+            if (toggleFileInfo.Length > 1_000_000)
+            {
+                ShowOSD("MWBToggle: Settings file is unexpectedly large — aborting.", 5000);
+                return;
+            }
 
-        // Backup before writing
-        try { File.Copy(_settingsPath, _settingsPath + ".bak", overwrite: true); } catch { }
-
-        // Retry loop — file may be briefly locked by MWB
-        bool written = false;
-        for (int i = 0; i < 3; i++)
-        {
+            string json;
             try
             {
-                File.WriteAllText(_settingsPath, json, Utf8NoBom);
-                written = true;
-                break;
+                json = File.ReadAllText(_settingsPath, Utf8NoBom);
             }
-            catch (IOException)
+            catch (IOException ex)
             {
-                // Yield to message pump instead of blocking the UI thread
-                WaitWithMessagePump(200);
+                Logger.Warn($"DoToggle read failed: {ex.Message}");
+                ShowOSD("MWBToggle: Could not read settings.json — file may be locked. Try again.", 5000);
+                return;
             }
-        }
 
-        if (!written)
+            var match = ShareClipboardRegex.Match(json);
+            if (!match.Success)
+            {
+                ShowOSD("MWBToggle: ShareClipboard not found in settings.json — run MWB at least once.", 5000);
+                return;
+            }
+
+            bool currentlyOn = match.Groups[1].Value == "true";
+
+            if (_confirmToggle && confirm)
+            {
+                string prompt = "Turn clipboard/file sharing " + (currentlyOn ? "OFF" : "ON") + "?";
+                if (MessageBox.Show(prompt, "MWBToggle", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                    != DialogResult.Yes)
+                    return;
+            }
+
+            // A manual toggle supersedes any pending pause — but only clear once we've
+            // committed to toggling (past the confirm dialog), so cancelling doesn't
+            // silently destroy the user's active pause.
+            _pauseTimer.Stop();
+            _pauseResumeAtUtc = null;
+            _pause5.Checked = false;
+            _pause30.Checked = false;
+            _pauseUnlimited.Checked = false;
+
+            string newVal = currentlyOn ? "false" : "true";
+            json = ShareClipboardReplaceRegex.Replace(json, "$1" + newVal);
+            json = TransferFileReplaceRegex.Replace(json, "$1" + newVal);
+
+            // Verify BOTH replacements landed — guards against future MWB schema drift.
+            var verifyClip = ShareClipboardRegex.Match(json);
+            var verifyFile = TransferFileRegex.Match(json);
+            if (!verifyClip.Success || verifyClip.Groups[1].Value != newVal
+             || !verifyFile.Success || verifyFile.Groups[1].Value != newVal)
+            {
+                Logger.Warn("DoToggle verify failed — regex replace did not update both fields.");
+                ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
+                return;
+            }
+
+            if (!WriteSettingsAtomic(json))
+            {
+                ShowOSD("MWBToggle: Could not write settings.json — file locked. Try again.", 5000);
+                return;
+            }
+
+            WaitWithMessagePump(300);
+            SyncTray();
+
+            string newState = currentlyOn ? "OFF" : "ON";
+            ShowOSD("MWBToggle: Clipboard & File Transfer " + newState);
+
+            if (_soundFeedback)
+                Beep(currentlyOn ? 400u : 800u, 150);
+        }
+        finally
         {
-            ShowOSD("MWBToggle: Could not write settings.json — file locked. Try again.", 5000);
-            return;
+            _toggleInProgress = false;
         }
-
-        // Brief delay for MWB to detect file change — pump messages to stay responsive
-        WaitWithMessagePump(300);
-        SyncTray();
-
-        string newState = currentlyOn ? "OFF" : "ON";
-        ShowOSD("MWBToggle: Clipboard & File Transfer " + newState);
-
-        // Optional sound feedback — use kernel32 Beep, not Console.Beep
-        if (_soundFeedback)
-            Beep(currentlyOn ? 400u : 800u, 150);
     }
 
     // Overload so GlobalHotkey can call with no args
     private void DoToggle() => DoToggle(confirm: true);
+
+    /// <summary>
+    /// Write settings.json atomically: write to .tmp, then NTFS-atomic Replace with
+    /// backup rotation into .bak. This avoids truncate-then-write data loss on power
+    /// cuts or AV quarantines, and gives us a recoverable prior-state rollback target.
+    /// </summary>
+    private bool WriteSettingsAtomic(string json)
+    {
+        string tmpPath = _settingsPath + ".tmp";
+        string bakPath = _settingsPath + ".bak";
+
+        // Suppress our own FileSystemWatcher event — this is a self-write, not an external one.
+        _suppressWatcherUntilUtc = DateTime.UtcNow.AddMilliseconds(500);
+
+        for (int i = 0; i < 3; i++)
+        {
+            // Refresh the self-write window inside the loop — a contended 3-retry path
+            // can exceed 500 ms, at which point our own successful write would leak
+            // through as an external change and trigger a redundant SyncTray.
+            _suppressWatcherUntilUtc = DateTime.UtcNow.AddMilliseconds(500);
+            try
+            {
+                File.WriteAllText(tmpPath, json, Utf8NoBom);
+                if (File.Exists(_settingsPath))
+                    File.Replace(tmpPath, _settingsPath, bakPath, ignoreMetadataErrors: true);
+                else
+                    File.Move(tmpPath, _settingsPath);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // UnauthorizedAccessException covers AV quarantine / DACL denial mid-retry,
+                // which otherwise escapes and crashes the toggle path.
+                Logger.Warn($"WriteSettingsAtomic attempt {i + 1} failed: {ex.Message}");
+                WaitWithMessagePump(200);
+            }
+        }
+
+        try { if (File.Exists(tmpPath)) File.Delete(tmpPath); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        { Logger.Warn($"tmp cleanup: {ex.Message}"); }
+        return false;
+    }
 
     /// <summary>
     /// Wait for the specified duration while pumping the WinForms message loop,
@@ -364,13 +442,24 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         string? dir = Path.GetDirectoryName(_settingsPath);
         string file = Path.GetFileName(_settingsPath);
-        if (dir == null || !Directory.Exists(dir)) return;
+        if (dir == null) return;
+
+        // MWB settings dir doesn't exist yet — watch nearest existing ancestor
+        // for the subdir to appear, then re-initialize. Covers install-before-PowerToys
+        // and PowerToys-reinstall cases without polling.
+        if (!Directory.Exists(dir))
+        {
+            WatchForSettingsDir(dir);
+            return;
+        }
 
         // Create debounce timer once — rapid FileSystemWatcher events restart it
         _debounceTimer = new System.Windows.Forms.Timer { Interval = 300 };
         _debounceTimer.Tick += (_, _) =>
         {
             _debounceTimer.Stop();
+            // Ignore our own writes — WriteSettingsAtomic sets a short suppression window.
+            if (DateTime.UtcNow < _suppressWatcherUntilUtc) return;
             SyncTray();
         };
 
@@ -403,6 +492,58 @@ internal sealed class MWBToggleApp : ApplicationContext
                 _fileWatcher.EnableRaisingEvents = true;
             }
             catch { }
+        };
+    }
+
+    // Single-shot guard for the bootstrap watcher: IncludeSubdirectories means we can get
+    // several `Created` events in quick succession as PowerToys builds out its dir tree.
+    // Without this flag, multiple in-flight BeginInvokes would each call StartFileWatcher
+    // and orphan the previous _fileWatcher with EnableRaisingEvents still true.
+    private bool _watcherBootstrapped;
+
+    /// <summary>
+    /// Watch the nearest existing ancestor of the settings dir. When the target dir
+    /// finally appears (MWB first launch after install), tear this down and re-init
+    /// the real watcher + refresh the tray.
+    /// </summary>
+    private void WatchForSettingsDir(string targetDir)
+    {
+        string? ancestor = Path.GetDirectoryName(targetDir);
+        while (!string.IsNullOrEmpty(ancestor) && !Directory.Exists(ancestor))
+            ancestor = Path.GetDirectoryName(ancestor);
+
+        if (string.IsNullOrEmpty(ancestor))
+        {
+            Logger.Warn($"No existing ancestor for {targetDir} — watcher not started.");
+            return;
+        }
+
+        var bootstrap = new FileSystemWatcher(ancestor)
+        {
+            IncludeSubdirectories = true,
+            NotifyFilter = NotifyFilters.DirectoryName,
+            EnableRaisingEvents = true
+        };
+        _fileWatcher = bootstrap;
+        _watcherBootstrapped = false;
+
+        bootstrap.Created += (_, _) =>
+        {
+            if (!Directory.Exists(targetDir)) return;
+            try
+            {
+                _menu.BeginInvoke(() =>
+                {
+                    if (_disposed || _watcherBootstrapped) return;
+                    _watcherBootstrapped = true;
+                    bootstrap.EnableRaisingEvents = false;
+                    bootstrap.Dispose();
+                    _fileWatcher = null;
+                    StartFileWatcher();
+                    SyncTray();
+                });
+            }
+            catch (Exception ex) { Logger.Warn($"watcher bootstrap marshal: {ex.Message}"); }
         };
     }
 
@@ -459,7 +600,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
-        catch { return; }
+        catch (Exception ex) { Logger.Warn($"PauseSharing read: {ex.Message}"); return; }
 
         // Only toggle if currently ON
         var m = ShareClipboardRegex.Match(json);
@@ -475,8 +616,13 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pauseTimer.Stop();
         if (minutes > 0)
         {
+            _pauseResumeAtUtc = DateTime.UtcNow.AddMinutes(minutes);
             _pauseTimer.Interval = minutes * 60_000;
             _pauseTimer.Start();
+        }
+        else
+        {
+            _pauseResumeAtUtc = null;
         }
 
         string msg = minutes > 0
@@ -488,13 +634,14 @@ internal sealed class MWBToggleApp : ApplicationContext
     private void ResumeSharing()
     {
         _pauseTimer.Stop();
+        _pauseResumeAtUtc = null;
 
         if (!File.Exists(_settingsPath)) return;
         if (new FileInfo(_settingsPath).Length > 1_000_000) return;
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
-        catch { return; }
+        catch (Exception ex) { Logger.Warn($"ResumeSharing read: {ex.Message}"); return; }
 
         // Clear checkmarks
         _pause5.Checked = false;
@@ -507,6 +654,36 @@ internal sealed class MWBToggleApp : ApplicationContext
             DoToggle(confirm: false);
 
         ShowOSD("MWBToggle: Sharing resumed.");
+    }
+
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        // SystemEvents callbacks fire on a dedicated SystemEvents pump thread, not the UI
+        // thread. WinForms Timer and form controls are UI-thread-only, so marshal over.
+        if (e.Mode != PowerModes.Resume) return;
+        try
+        {
+            _menu.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+                if (_pauseResumeAtUtc is not DateTime due) return;
+
+                _pauseTimer.Stop();
+                if (DateTime.UtcNow >= due)
+                {
+                    ResumeSharing();
+                }
+                else
+                {
+                    _pauseTimer.Interval = Math.Max(1000, (int)(due - DateTime.UtcNow).TotalMilliseconds);
+                    _pauseTimer.Start();
+                }
+            });
+        }
+        catch (InvalidOperationException)
+        {
+            // Menu handle destroyed during shutdown — nothing to do.
+        }
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -641,36 +818,46 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         form.KeyDown += (_, e) =>
         {
-            // Need at least one modifier
-            if (e.Modifiers == Keys.None) return;
+            // Win key isn't in e.Modifiers (Keys.Modifiers = Shift|Ctrl|Alt only) — read via Win32.
+            bool winDown = (GetKeyState(VK_LWIN) & 0x8000) != 0
+                        || (GetKeyState(VK_RWIN) & 0x8000) != 0;
 
-            // Build AHK-style hotkey string
-            string ahk = "";
-            if (e.Control) ahk += "^";
-            if (e.Alt) ahk += "!";
-            if (e.Shift) ahk += "+";
-            if ((e.Modifiers & Keys.LWin) != 0 || e.KeyCode == Keys.LWin) ahk += "#";
+            if (e.Modifiers == Keys.None && !winDown) return;
 
-            // Get the actual key (not modifier keys themselves)
+            // Ignore while the user is still pressing only modifier keys.
             var key = e.KeyCode & ~Keys.Modifiers;
             if (key is Keys.ControlKey or Keys.ShiftKey or Keys.Menu or Keys.LWin or Keys.RWin)
-                return; // Still pressing modifiers, wait for the actual key
+                return;
 
-            ahk += key switch
+            string? keyPart = key switch
             {
-                >= Keys.A and <= Keys.Z => ((char)key).ToString().ToLowerInvariant(),
-                >= Keys.D0 and <= Keys.D9 => ((char)(key - Keys.D0 + '0')).ToString(),
+                >= Keys.A and <= Keys.Z    => ((char)key).ToString().ToLowerInvariant(),
+                >= Keys.D0 and <= Keys.D9  => ((char)(key - Keys.D0 + '0')).ToString(),
                 >= Keys.F1 and <= Keys.F12 => key.ToString(),
-                Keys.Space => "Space",
+                Keys.Space  => "Space",
                 Keys.Return => "Enter",
                 Keys.Escape => "Escape",
-                Keys.Tab => "Tab",
-                Keys.Back => "Backspace",
+                Keys.Tab    => "Tab",
+                Keys.Back   => "Backspace",
                 Keys.Delete => "Delete",
-                _ => key.ToString()
+                _ => null
             };
 
-            // Re-register the hotkey
+            if (keyPart == null)
+            {
+                resultLabel.Text = "Unsupported key — use A-Z, 0-9, or F1-F12.";
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            string ahk = "";
+            if (e.Control) ahk += "^";
+            if (e.Alt)     ahk += "!";
+            if (e.Shift)   ahk += "+";
+            if (winDown)   ahk += "#";
+            ahk += keyPart;
+
             _globalHotkey.Dispose();
             _hotkey = ahk;
             _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD("MWBToggle: " + msg, 5000));
@@ -714,21 +901,15 @@ internal sealed class MWBToggleApp : ApplicationContext
         string newVal = transferOn ? "false" : "true";
         json = TransferFileReplaceRegex.Replace(json, "$1" + newVal);
 
-        try { File.Copy(_settingsPath, _settingsPath + ".bak", overwrite: true); } catch { }
-
-        bool written = false;
-        for (int i = 0; i < 3; i++)
+        var verifyFile = TransferFileRegex.Match(json);
+        if (!verifyFile.Success || verifyFile.Groups[1].Value != newVal)
         {
-            try
-            {
-                File.WriteAllText(_settingsPath, json, Utf8NoBom);
-                written = true;
-                break;
-            }
-            catch (IOException) { WaitWithMessagePump(200); }
+            Logger.Warn("ToggleTransferFile verify failed — regex replace did not update.");
+            ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
+            return;
         }
 
-        if (!written)
+        if (!WriteSettingsAtomic(json))
         {
             ShowOSD("MWBToggle: Could not write settings.json — file locked.", 5000);
             return;
@@ -815,7 +996,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             }
             finally { Marshal.FinalReleaseComObject(shell); }
         }
-        catch { /* Best-effort — don't crash the app over a shortcut */ }
+        catch (Exception ex) { Logger.Warn($"ValidateStartupShortcut: {ex.Message}"); }
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -1036,6 +1217,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (_disposed) return;
         _disposed = true;
 
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         _globalHotkey.Dispose();
         _fileWatcher?.Dispose();
         _debounceTimer?.Stop();
@@ -1057,6 +1239,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (disposing && !_disposed)
         {
             _disposed = true;
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             _globalHotkey.Dispose();
             _fileWatcher?.Dispose();
             _debounceTimer?.Stop();

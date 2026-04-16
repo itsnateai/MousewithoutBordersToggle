@@ -6,7 +6,11 @@ namespace MWBToggle;
 
 internal static class Program
 {
-    private const string MutexName = "Global\\MWBToggle_SingleInstance";
+    // Per-session (Local\) rather than machine-wide (Global\). A tray app is inherently
+    // per-user — each Windows session gets its own tray, its own settings.json view,
+    // its own startup shortcut. Global\ allowed any unprivileged user to DoS every
+    // other user's instance by squatting the name at login.
+    private const string MutexName = "Local\\MWBToggle_SingleInstance";
 
     [STAThread]
     static void Main(string[] args)

@@ -18,7 +18,7 @@ internal sealed class AboutForm : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
-        ClientSize = new Size(300, 170);
+        ClientSize = new Size(300, 200);
 
         var titleLabel = new Label
         {
@@ -51,11 +51,30 @@ internal sealed class AboutForm : Form
         };
         Controls.Add(hotkeyLabel);
 
+        var logLink = new LinkLabel
+        {
+            Text = "Open log folder",
+            AutoSize = false,
+            Size = new Size(280, 18),
+            Location = new Point(10, 108),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        logLink.LinkClicked += (_, _) =>
+        {
+            var dir = System.IO.Path.GetDirectoryName(Logger.LogPath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                try { System.IO.Directory.CreateDirectory(dir); } catch { }
+                using var _ = Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
+            }
+        };
+        Controls.Add(logLink);
+
         var githubBtn = new Button
         {
             Text = "GitHub",
             Size = new Size(80, 30),
-            Location = new Point(25, 120)
+            Location = new Point(25, 150)
         };
         githubBtn.Click += (_, _) =>
         {
@@ -68,7 +87,7 @@ internal sealed class AboutForm : Form
         {
             Text = "Update",
             Size = new Size(70, 30),
-            Location = new Point(115, 120)
+            Location = new Point(115, 150)
         };
         updateBtn.Click += (_, _) =>
         {
@@ -81,7 +100,7 @@ internal sealed class AboutForm : Form
         {
             Text = "Close",
             Size = new Size(80, 30),
-            Location = new Point(195, 120)
+            Location = new Point(195, 150)
         };
         closeBtn.Click += (_, _) => Hide();
         Controls.Add(closeBtn);

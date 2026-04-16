@@ -24,29 +24,32 @@ internal sealed class GlobalHotkey : IDisposable
     private const uint MOD_CONTROL = 0x0002;
     private const uint MOD_SHIFT   = 0x0004;
     private const uint MOD_WIN     = 0x0008;
+    // Prevents autorepeat — without this, holding the hotkey fires DoToggle at keyboard
+    // repeat rate (~20-30 Hz), which races the settings.json write/retry loop.
+    private const uint MOD_NOREPEAT = 0x4000;
 
     private readonly HotkeyWindow _window;
     private bool _disposed;
 
     /// <summary>
-    /// Register a global hotkey. If registration fails, falls back to Ctrl+Alt+C
+    /// Register a global hotkey. If parsing or registration fails, falls back to Ctrl+Alt+C
     /// and updates <paramref name="ahkHotkey"/> so the caller's field reflects
     /// the actual registered hotkey (mirrors AHK line 73: g_hotkey := "^!c").
     /// </summary>
     /// <param name="onWarning">Optional callback for warning messages (replaces MessageBox).</param>
     public GlobalHotkey(ref string ahkHotkey, Action callback, Action<string>? onWarning = null)
     {
-        ParseAhkHotkey(ahkHotkey, out uint modifiers, out uint vk);
+        bool parsed = ParseAhkHotkey(ahkHotkey, out uint modifiers, out uint vk);
 
         _window = new HotkeyWindow(callback);
 
-        if (!RegisterHotKey(_window.Handle, HOTKEY_ID, modifiers, vk))
+        if (!parsed || !RegisterHotKey(_window.Handle, HOTKEY_ID, modifiers | MOD_NOREPEAT, vk))
         {
-            // Registration failed — warn and fall back to Ctrl+Alt+C
             onWarning?.Invoke($"Invalid hotkey: {ahkHotkey} — falling back to Ctrl+Alt+C.");
 
             ahkHotkey = "^!c";
-            RegisterHotKey(_window.Handle, HOTKEY_ID, MOD_CONTROL | MOD_ALT, (uint)Keys.C);
+            RegisterHotKey(_window.Handle, HOTKEY_ID,
+                MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, (uint)Keys.C);
         }
     }
 
@@ -54,10 +57,12 @@ internal sealed class GlobalHotkey : IDisposable
     /// Parse an AHK-style hotkey string into Win32 modifier flags and virtual key code.
     /// Supports: ^ (Ctrl), ! (Alt), + (Shift), # (Win) prefixes.
     /// Key names: single chars, or names like "F1"-"F12", "Space", "Enter", etc.
+    /// Returns true if parsing succeeded; false if the key portion was empty or unrecognized.
     /// </summary>
-    internal static void ParseAhkHotkey(string hk, out uint modifiers, out uint vk)
+    internal static bool ParseAhkHotkey(string hk, out uint modifiers, out uint vk)
     {
         modifiers = 0;
+        vk = 0;
         int i = 0;
 
         while (i < hk.Length && "#^!+".Contains(hk[i]))
@@ -73,22 +78,21 @@ internal sealed class GlobalHotkey : IDisposable
             i++;
         }
 
+        if (i >= hk.Length) return false; // modifiers without a key
+
         string keyName = hk[i..];
 
-        // Single character → direct VK mapping
         if (keyName.Length == 1)
         {
             char c = char.ToUpperInvariant(keyName[0]);
-            if (c is >= 'A' and <= 'Z')
+            if (c is >= 'A' and <= 'Z' or >= '0' and <= '9')
+            {
                 vk = (uint)c;
-            else if (c is >= '0' and <= '9')
-                vk = (uint)c;
-            else
-                vk = (uint)Keys.C; // fallback
-            return;
+                return true;
+            }
+            return false;
         }
 
-        // Named keys
         vk = keyName.ToLowerInvariant() switch
         {
             "space"     => (uint)Keys.Space,
@@ -122,8 +126,9 @@ internal sealed class GlobalHotkey : IDisposable
             "f10"       => (uint)Keys.F10,
             "f11"       => (uint)Keys.F11,
             "f12"       => (uint)Keys.F12,
-            _           => (uint)Keys.C  // fallback
+            _           => 0
         };
+        return vk != 0;
     }
 
     public void Dispose()
