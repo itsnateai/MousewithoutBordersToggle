@@ -17,13 +17,15 @@ internal sealed class OsdForm : Form
     private string _text = string.Empty;
     private State _state;
 
-    private static readonly Font s_dotFont = new("Segoe UI", 10f);
-    private static readonly Font s_labelFont = new("Segoe UI Semibold", 9f);
-    private static readonly SolidBrush s_bgBrush = new(Color.FromArgb(0x1E, 0x1E, 0x1E));
-    private static readonly SolidBrush s_textBrush = new(Color.FromArgb(0xE0, 0xE0, 0xE0));
-    private static readonly SolidBrush s_onDotBrush = new(Color.FromArgb(0x2E, 0xCC, 0x71));   // green
-    private static readonly SolidBrush s_offDotBrush = new(Color.FromArgb(0xE0, 0x40, 0x40));  // red
-    private static readonly SolidBrush s_infoDotBrush = new(Color.FromArgb(0x9A, 0x9A, 0x9A)); // neutral gray
+    // Discreet palette — softened from the original high-contrast variant.
+    // Regular weight (not semibold), slightly warmer greys, muted accent dots.
+    private static readonly Font s_dotFont = new("Segoe UI", 9f);
+    private static readonly Font s_labelFont = new("Segoe UI", 9f);
+    private static readonly SolidBrush s_bgBrush = new(Color.FromArgb(0x24, 0x24, 0x26));
+    private static readonly SolidBrush s_textBrush = new(Color.FromArgb(0xC8, 0xC8, 0xCC));
+    private static readonly SolidBrush s_onDotBrush = new(Color.FromArgb(0x4C, 0xB8, 0x74));   // muted green
+    private static readonly SolidBrush s_offDotBrush = new(Color.FromArgb(0xCC, 0x5A, 0x5A));  // muted red
+    private static readonly SolidBrush s_infoDotBrush = new(Color.FromArgb(0x80, 0x80, 0x84)); // neutral gray
 
     private const string DotChar = "\u25CF"; // ●
 
@@ -49,7 +51,7 @@ internal sealed class OsdForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        BackColor = Color.FromArgb(0x1E, 0x1E, 0x1E);
+        BackColor = Color.FromArgb(0x24, 0x24, 0x26);
 
         _dismissTimer = new System.Windows.Forms.Timer();
         _dismissTimer.Tick += (_, _) =>
@@ -84,8 +86,10 @@ internal sealed class OsdForm : Form
         using (var g = CreateGraphics())
         {
             var labelSize = g.MeasureString(_text, s_labelFont);
-            int w = 12 + 14 + (int)Math.Ceiling(labelSize.Width) + 16;
-            int h = 32;
+            // Padding: left 10 · dot 12 · text · right 12. Tighter than before so the
+            // pill doesn't feel oversized for the shorter phrasing we now use.
+            int w = 10 + 12 + (int)Math.Ceiling(labelSize.Width) + 12;
+            int h = 28;
 
             // Default anchor: bottom-right corner of the working area. WorkingArea
             // already excludes the taskbar regardless of its edge (top / left / right /
@@ -124,7 +128,7 @@ internal sealed class OsdForm : Form
         int preference = DWMWCP_ROUND;
         _ = DwmSetWindowAttribute(Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
 
-        Opacity = 235.0 / 255.0;
+        Opacity = 215.0 / 255.0;
         Invalidate();
 
         if (!Visible) Show();
@@ -145,8 +149,8 @@ internal sealed class OsdForm : Form
             State.Off => s_offDotBrush,
             _ => s_infoDotBrush
         };
-        g.DrawString(DotChar, s_dotFont, dotBrush, 12, 6);
-        g.DrawString(_text, s_labelFont, s_textBrush, 28, 6);
+        g.DrawString(DotChar, s_dotFont, dotBrush, 10, 5);
+        g.DrawString(_text, s_labelFont, s_textBrush, 24, 5);
     }
 
     protected override void Dispose(bool disposing)

@@ -2,6 +2,26 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.4] — 2026-04-17
+
+### Tray menu polish
+- **Hotkeys submenu is narrower.** Each binding now stacks as a clickable title with the key combo on a greyed line beneath it, instead of one wide `Title: combo` line. The submenu's width follows the longest label, not the longest combo.
+- **"Clipboard + File Transfer"** is the full label everywhere it appears (tray menu and About dialog), replacing the tighter `Clipboard + Transfer`.
+
+### Hotkey picker
+- **Preview and Current no longer duplicate each other on open.** Preview starts as `—` until you press a combo; the currently-bound hotkey appears on its own greyed line below.
+- **Enter now commits Set, not Unbind.** Focus jumps to the Set button the moment a valid combo is captured, so hitting Enter binds it instead of clearing.
+- **Unbind / Set / Cancel are evenly spread** across the dialog instead of crammed to the left.
+- **The primary toggle hotkey can be unbound.** If you clear it, the app is still usable via the tray icon and menu — and the empty hotkey survives restart instead of silently falling back to the default.
+
+### About dialog
+- **Both hotkeys are now listed.** Clipboard + File Transfer and File Transfer each show on their own line.
+- **Values refresh when you reopen About.** Previously the labels were cached from first open and showed stale hotkeys after a rebind.
+
+### OSD polish
+- **Shorter, more glanceable messages.** `Paused · 5 min`, `Resumed`, `Clipboard · ON`, `Hotkey · Win + Ctrl + Shift + F`. The `MWBToggle: ` prefix is gone from every message — the bubble sits next to your tray icon, you already know which app did it.
+- **Softer pill.** Regular-weight font, 84% opacity, muted greens and reds, slightly shorter height. Reads as ambient confirmation, not a system alert.
+
 ## [2.5.3] — 2026-04-17
 
 ### Pause
@@ -15,7 +35,7 @@
 
 ### Polish
 - **OSD bubble matches MicMute and SyncTray exactly.**
-- **"Clipboard + Transfer"** reads more clearly than the old `Clipboard/Transfer` label in the Hotkeys submenu.
+- **"Clipboard + File Transfer"** reads more clearly than the old `Clipboard/Transfer` label in the Hotkeys submenu.
 - **Fresh installs now default to `Win+Ctrl+Shift+F`** (was `Ctrl+Alt+C`). Existing `MWBToggle.ini` files keep whatever hotkey they already had.
 
 ## [2.5.2] — 2026-04-17 — new LTR
