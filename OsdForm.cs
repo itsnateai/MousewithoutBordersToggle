@@ -85,10 +85,17 @@ internal sealed class OsdForm : Form
 
         using (var g = CreateGraphics())
         {
+            var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
+            var workArea = screen.WorkingArea;
+
             var labelSize = g.MeasureString(_text, s_labelFont);
             // Padding: left 10 · dot 12 · text · right 12. Tighter than before so the
             // pill doesn't feel oversized for the shorter phrasing we now use.
             int w = 10 + 12 + (int)Math.Ceiling(labelSize.Width) + 12;
+            // Pathological long messages would otherwise extend past the screen edge.
+            // Cap to half the working-area width; overflow ellipsizes cleanly at paint.
+            int maxW = Math.Max(160, workArea.Width / 2);
+            if (w > maxW) w = maxW;
             int h = 28;
 
             // Default anchor: bottom-right corner of the working area. WorkingArea
@@ -96,8 +103,6 @@ internal sealed class OsdForm : Form
             // bottom), so this is the safe fallback for every taskbar orientation.
             // Canonical positioning pattern — ported from MicMute's OsdForm
             // (the "tooltip template" standard for tray utilities).
-            var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
-            var workArea = screen.WorkingArea;
             int xPos = workArea.Right - w - 12;
             int yPos = workArea.Bottom - h - 8;
 
@@ -118,6 +123,10 @@ internal sealed class OsdForm : Form
                     yPos = anchoredY;
                 }
             }
+
+            // Final safety clamp: even with the anchor/fallback logic above, a
+            // pathological width + narrow screen could leave xPos past the left edge.
+            if (xPos < workArea.Left + 8) xPos = workArea.Left + 8;
 
             SetBounds(xPos, yPos, w, h);
         }
