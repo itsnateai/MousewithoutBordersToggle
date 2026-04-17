@@ -2,6 +2,28 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.6] — 2026-04-17
+
+### Tray
+- **Tray tooltip shows pause state.** Hovering the tray icon during a pause now reads `MWBToggle v2.5.6 — Paused (resumes 14:32)` for timed pauses, or `Paused` for an open-ended pause — instead of the old ON/OFF text which made it look as though sharing had simply been turned off.
+- **The Exit item has a visible separator** above it, so it no longer crowds the PowerToys submenu.
+
+### Reliability
+- **Fewer handle leaks on Exit.** Exiting from the tray menu now disposes the context menu, About dialog, and both state icons — they previously leaked until process teardown.
+- **FileSystemWatcher error-recovery no longer leaks a timer per cycle.** When the watcher has to be re-initialized (e.g. network drive reconnect, PowerToys reinstall), the old debounce timer is disposed before the new one replaces it.
+- **Logging is lighter on the disk.** The log is kept open with a single handle instead of opening and closing the file on every line, and the truncation check runs periodically instead of on every write. Steady-state logging cost drops significantly.
+- **Update dialog: cancelling after close is quiet.** Rapid double-clicks on Cancel could throw `ObjectDisposedException` into the unhandled-exception handler; this path is now silent as intended.
+- **Update dialog: the integrity-check URL is held to the same tight origin as the download URL** (previously the general allowlist). A stray redirect target from the GitHub API can no longer reach the hash-verify step.
+
+### UI polish
+- **OSD stays on-screen even on narrow displays.** The bubble's width is capped at half the working area, and its left edge is clamped inside the working area — pathological long messages no longer extend past the screen edge.
+- **The "update complete" toast drops the decorative check-mark** to match the rest of the app's no-emoji tone.
+
+### Housekeeping
+- **`mwbtoggle.ico` is now a proper multi-resolution app icon** with 16/32/48/128/256 frames, distinct from the green-dot tray icon. Win11 Explorer's large-thumbnail view is no longer a blurry upscaled 48×48.
+- **GitHub Actions (`actions/checkout`, `actions/setup-dotnet`) are pinned to commit SHAs**, matching the `softprops/action-gh-release` pin already in place. Supply-chain tightening, no behavior change.
+- **Dead `Logger.Error` method removed** (zero callers). Warnings and errors both route through `Logger.Warn` as they have since v2.4.x.
+
 ## [2.5.5] — 2026-04-17
 
 ### Pause
