@@ -17,7 +17,7 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 - **Run at startup**: One-click toggle to add/remove from Windows Startup folder
 - **One-way sharing**: Disable sharing on one machine while keeping it on another for directional clipboard/file transfer
 - **Zero polling**: Uses OS-level FileSystemWatcher — no CPU usage when idle
-- **On-screen display**: Floating tooltip at cursor position (no toast notification spam)
+- **On-screen display**: Discreet dark bubble pinned above the system tray with a green/red state dot — no toast notification spam, no cursor tracking
 - **One-click self-update**: Check for new versions from the About dialog — SHA256-verified downloads
 - **Atomic settings writes**: Toggles can't leave your MWB config half-written, even on power loss or AV interruption
 

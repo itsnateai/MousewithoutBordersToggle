@@ -17,6 +17,13 @@ internal static class Program
     {
         bool isAfterUpdate = args.Contains("--after-update");
 
+        // Self-heal the startup shortcut BEFORE the mutex check. A winget upgrade places
+        // the new exe in a versioned subfolder, so the Startup-folder .lnk points at the
+        // old path. Running this early means even a duplicate launch that immediately
+        // loses the mutex race still refreshes the .lnk — so the NEXT reboot's startup
+        // shortcut finds the current version.
+        try { MWBToggleApp.ValidateStartupShortcut(); } catch { /* never block startup */ }
+
         var mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
         {

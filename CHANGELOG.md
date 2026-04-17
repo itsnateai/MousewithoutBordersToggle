@@ -2,7 +2,24 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
-## [2.5.1] — 2026-04-16 — new LTR
+## [2.5.2] — 2026-04-17 — new LTR
+
+### Security
+- **Update downloads can no longer be hijacked by a redirect.** The update check now validates every hop of the download chain against an explicit allowlist — a compromised or crafted redirect from GitHub can't silently hand off to an attacker-controlled server.
+
+### Accessibility & keyboard
+- **Enter and Esc now work in every dialog.** About / Update / Set-Hotkey all respond to Enter for the primary action and Esc to close — previously you had to click with a mouse.
+- **Screen-reader descriptions** added to all dialog buttons, so Narrator announces what each button does instead of just the label.
+
+### Reliability
+- **"Run at Startup" heals itself after a winget upgrade.** When winget moves the executable into a new versioned folder, the Startup-folder shortcut is refreshed on the next app launch — even a duplicate launch that exits immediately still updates the shortcut.
+- **Corrupted or oversized `MWBToggle.ini` no longer crashes startup.** If the INI is larger than 64 KB (malformed, not what MWBToggle writes), the app falls back to defaults instead of out-of-memory.
+
+### Polish
+- **App file properties** now show Product, Company, Copyright, and File Version in Explorer's Properties → Details tab. Helps Windows SmartScreen reputation and makes the exe look like a real signed-ish app.
+- **README feature list** updated — the "floating tooltip at cursor" line was stale after v2.5.1's OSD rewrite.
+
+## [2.5.1] — 2026-04-16
 
 ### OSD polish
 - **Tooltip no longer shows up off the bottom of the screen** when you click the tray icon. It's now pinned just above the system tray, same as MicMute and SyncTray.

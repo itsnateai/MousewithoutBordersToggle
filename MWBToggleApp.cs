@@ -482,15 +482,35 @@ internal sealed class MWBToggleApp : ApplicationContext
             catch { }
         };
 
-        // If the watcher errors (network drive disconnect, etc.), restart it
-        _fileWatcher.Error += (_, _) =>
+        // If the watcher errors (network drive disconnect, settings dir removed, etc.),
+        // attempt to restart it in-place. If that fails (common case: the dir is gone
+        // entirely), tear down and fall back to the bootstrap watcher so the tray
+        // recovers when MWB reappears. Without the fallback, a vanished settings dir
+        // leaves the app silently blind to future state changes.
+        _fileWatcher.Error += (_, errArgs) =>
         {
             try
             {
-                _fileWatcher.EnableRaisingEvents = false;
+                _fileWatcher!.EnableRaisingEvents = false;
                 _fileWatcher.EnableRaisingEvents = true;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Logger.Warn($"FileSystemWatcher Error — in-place restart failed ({ex.Message}); falling back to bootstrap watcher.");
+                try
+                {
+                    _menu.BeginInvoke(() =>
+                    {
+                        if (_disposed) return;
+                        try { _fileWatcher?.Dispose(); } catch { }
+                        _fileWatcher = null;
+                        string? settingsDir = Path.GetDirectoryName(_settingsPath);
+                        if (!string.IsNullOrEmpty(settingsDir))
+                            WatchForSettingsDir(settingsDir);
+                    });
+                }
+                catch (Exception ex2) { Logger.Warn($"FileSystemWatcher Error — bootstrap re-init marshal failed: {ex2.Message}"); }
+            }
         };
     }
 
@@ -810,10 +830,15 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             Text = "Cancel",
             Size = new Size(80, 28),
-            Location = new Point(110, 80)
+            Location = new Point(110, 80),
+            AccessibleName = "Cancel hotkey change and keep current binding"
         };
         cancelBtn.Click += (_, _) => form.Close();
         form.Controls.Add(cancelBtn);
+
+        // Esc closes without changing the hotkey. The KeyDown handler below bails early
+        // on bare Esc (no modifiers), so the keypress bubbles to CancelButton.
+        form.CancelButton = cancelBtn;
 
         form.KeyDown += (_, e) =>
         {
@@ -969,12 +994,24 @@ internal sealed class MWBToggleApp : ApplicationContext
     }
 
     /// <summary>
-    /// Self-heal the startup shortcut if the exe has moved (e.g. after a winget upgrade).
-    /// Reads the existing .lnk TargetPath and updates it if it doesn't match the current exe.
+    /// Self-heal the startup shortcut if the exe has moved (e.g. after a winget upgrade
+    /// places the new version in a different versioned subfolder of
+    /// <c>%LOCALAPPDATA%\Microsoft\WinGet\Packages\</c>). Reads the existing .lnk
+    /// TargetPath and updates it if it doesn't match the current exe.
+    /// Static so <see cref="Program"/> can invoke it BEFORE the single-instance mutex
+    /// check — that way even a duplicate launch that immediately exits still leaves the
+    /// startup shortcut pointing at the current exe for the next reboot.
     /// </summary>
-    private void ValidateStartupShortcut()
+    internal static void ValidateStartupShortcut()
     {
-        if (!File.Exists(_startupShortcut)) return;
+        string startupShortcut = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Startup),
+            "MWBToggle.lnk");
+        if (!File.Exists(startupShortcut)) return;
+
+        string currentPath = Environment.ProcessPath ?? Application.ExecutablePath;
+        if (string.IsNullOrEmpty(currentPath)) return;
+        string currentDir = Path.GetDirectoryName(currentPath) ?? "";
 
         try
         {
@@ -983,14 +1020,13 @@ internal sealed class MWBToggleApp : ApplicationContext
             dynamic shell = Activator.CreateInstance(shellType)!;
             try
             {
-                dynamic shortcut = shell.CreateShortcut(_startupShortcut);
+                dynamic shortcut = shell.CreateShortcut(startupShortcut);
                 try
                 {
                     var targetPath = (string)shortcut.TargetPath;
-                    var currentPath = Environment.ProcessPath ?? "";
                     if (!targetPath.Equals(currentPath, StringComparison.OrdinalIgnoreCase))
                     {
-                        CreateShortcut(_startupShortcut, currentPath, _exeDir);
+                        CreateShortcut(startupShortcut, currentPath, currentDir);
                     }
                 }
                 finally { Marshal.FinalReleaseComObject(shortcut); }

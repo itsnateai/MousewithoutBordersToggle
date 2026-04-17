@@ -91,7 +91,8 @@ internal sealed class UpdateDialog : Form
             Text = "Upgrade Now",
             Location = new Point(155, 112),
             Size = new Size(110, 32),
-            Visible = false
+            Visible = false,
+            AccessibleName = "Download and install the latest version"
         };
         _btnAction.Click += OnActionClick;
         Controls.Add(_btnAction);
@@ -100,7 +101,8 @@ internal sealed class UpdateDialog : Form
         {
             Text = "Cancel",
             Location = new Point(295, 112),
-            Size = new Size(80, 32)
+            Size = new Size(80, 32),
+            AccessibleName = "Cancel update check"
         };
         _btnCancel.Click += (_, _) =>
         {
@@ -109,6 +111,11 @@ internal sealed class UpdateDialog : Form
             Close();
         };
         Controls.Add(_btnCancel);
+
+        // Enter triggers the currently-primary action (Upgrade Now once visible, nothing
+        // before that), Esc always cancels and disposes the in-flight HTTP request.
+        AcceptButton = _btnAction;
+        CancelButton = _btnCancel;
 
         _marqueeTimer = new System.Windows.Forms.Timer { Interval = 30 };
         _marqueeTimer.Tick += (_, _) =>
@@ -127,10 +134,60 @@ internal sealed class UpdateDialog : Form
     private static HttpClient CreateHttpClient()
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        // Disable auto-redirect: the default handler follows redirects WITHOUT re-checking
+        // each hop against the allowlist, which would let an allowlisted origin (e.g. the
+        // GitHub API) hand off to an attacker-controlled CDN via a crafted 3xx. We follow
+        // manually below, validating each hop.
+        var handler = new HttpClientHandler { AllowAutoRedirect = false };
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(AppName, version));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
+    }
+
+    // URL allowlist for every HTTP request (including post-redirect). The prior code
+    // only validated the first URL before `HttpClient` silently followed redirects.
+    private static readonly string[] UrlAllowlist =
+    {
+        "https://api.github.com/",
+        "https://github.com/itsnateai/",
+        "https://objects.githubusercontent.com/",
+    };
+
+    private static bool IsAllowlisted(string url) =>
+        UrlAllowlist.Any(prefix => url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Issue a GET and follow up to 5 redirects manually. Every hop's URL — including
+    /// the initial one — is validated against <see cref="UrlAllowlist"/> before the
+    /// request is sent. Throws if any hop lands off-list or if the redirect chain
+    /// exceeds the hop limit.
+    /// </summary>
+    private static async Task<HttpResponseMessage> SendAllowlistedAsync(
+        string url, HttpCompletionOption completion, CancellationToken ct)
+    {
+        const int maxHops = 5;
+        for (int hop = 0; hop < maxHops; hop++)
+        {
+            if (!IsAllowlisted(url))
+                throw new HttpRequestException($"URL not in allowlist: {url}");
+
+            var response = await _http.GetAsync(url, completion, ct);
+
+            int status = (int)response.StatusCode;
+            if (status >= 300 && status < 400 && response.Headers.Location != null)
+            {
+                var next = response.Headers.Location.IsAbsoluteUri
+                    ? response.Headers.Location.ToString()
+                    : new Uri(new Uri(url), response.Headers.Location).ToString();
+                response.Dispose();
+                url = next;
+                continue;
+            }
+
+            return response;
+        }
+        throw new HttpRequestException($"Too many redirects (>{maxHops}) starting from initial URL.");
     }
 
     // ─── Check GitHub ───────────────────────────────────────────
@@ -156,8 +213,9 @@ internal sealed class UpdateDialog : Form
 
         try
         {
-            var response = await _http.GetAsync(
+            var response = await SendAllowlistedAsync(
                 $"https://api.github.com/repos/{GitHubRepo}/releases/latest",
+                HttpCompletionOption.ResponseContentRead,
                 _cts.Token);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
@@ -296,7 +354,10 @@ internal sealed class UpdateDialog : Form
                 _lblStatus.Text = "Verifying integrity...";
                 try
                 {
-                    var hashContent = await _http.GetStringAsync(_hashFileUrl, _cts!.Token);
+                    using var hashResponse = await SendAllowlistedAsync(
+                        _hashFileUrl, HttpCompletionOption.ResponseContentRead, _cts!.Token);
+                    hashResponse.EnsureSuccessStatusCode();
+                    var hashContent = await hashResponse.Content.ReadAsStringAsync(_cts.Token);
                     string? expectedHash = null;
                     foreach (var line in hashContent.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                     {
@@ -405,7 +466,7 @@ internal sealed class UpdateDialog : Form
 
     private async Task<bool> DownloadFileAsync(string url, string destPath)
     {
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, _cts!.Token);
+        using var response = await SendAllowlistedAsync(url, HttpCompletionOption.ResponseHeadersRead, _cts!.Token);
         response.EnsureSuccessStatusCode();
 
         var totalBytes = response.Content.Headers.ContentLength ?? 0;

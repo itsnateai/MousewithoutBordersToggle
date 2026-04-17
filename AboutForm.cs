@@ -74,7 +74,8 @@ internal sealed class AboutForm : Form
         {
             Text = "GitHub",
             Size = new Size(80, 30),
-            Location = new Point(25, 150)
+            Location = new Point(25, 150),
+            AccessibleName = "Open MWBToggle GitHub page"
         };
         githubBtn.Click += (_, _) =>
         {
@@ -87,7 +88,8 @@ internal sealed class AboutForm : Form
         {
             Text = "Update",
             Size = new Size(70, 30),
-            Location = new Point(115, 150)
+            Location = new Point(115, 150),
+            AccessibleName = "Check for updates"
         };
         updateBtn.Click += (_, _) =>
         {
@@ -100,10 +102,15 @@ internal sealed class AboutForm : Form
         {
             Text = "Close",
             Size = new Size(80, 30),
-            Location = new Point(195, 150)
+            Location = new Point(195, 150),
+            AccessibleName = "Close About dialog"
         };
         closeBtn.Click += (_, _) => Hide();
         Controls.Add(closeBtn);
+
+        // Enter activates Close, Esc also closes — mirrors a standard About dialog.
+        AcceptButton = closeBtn;
+        CancelButton = closeBtn;
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

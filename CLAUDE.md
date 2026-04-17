@@ -71,8 +71,17 @@ Optional `MWBToggle.ini` next to the exe:
 
 ## Status
 
-**v2.5.1 — LTR**
+**v2.5.2 — LTR (Microsoft-user hardened)**
 
-Carries all v2.5.0 hardening: MOD_NOREPEAT on hotkey, atomic settings writes, TransferFile regex verify, hotkey picker handles Win-modifier + rejects unsupported keys with a visible error, pause timer is sleep-aware and cleared by manual toggles, watcher bootstraps from parent dir when MWB isn't installed yet, per-session mutex, SHA256SUMS published by release workflow, rollback sentinel, tiny rolling log at `%LOCALAPPDATA%\MWBToggle\`.
+Carries all v2.5.0 hardening (MOD_NOREPEAT hotkey, atomic settings writes, TransferFile regex verify, sleep-aware pause, watcher bootstrap, per-session mutex, SHA256SUMS, rollback sentinel, rolling log).
 
-**v2.5.1 adds:** discreet OSD bubble pinned above the system tray (replaces the cursor-anchored tooltip that clipped off-screen on tray clicks) with a green/red state dot. Canonical C# tooltip template codified at `_.claude/_templates/snippets/csharp/osd-tooltip.md`.
+**v2.5.1 added:** discreet OSD bubble pinned above the system tray (replaces cursor-anchored tooltip) with a green/red state dot. Canonical C# tooltip template codified at `_.claude/_templates/snippets/csharp/osd-tooltip.md`.
+
+**v2.5.2 adds:**
+- OSD positioning works for top/left/right taskbars (v2.5.1 regression fix).
+- FSW Error handler logs and falls back to bootstrap watcher instead of silent death.
+- `HttpClient` update-check hardened: manual redirect following with per-hop allowlist re-check (closes redirect-bypass gap).
+- Startup shortcut self-heal hoisted to `Program.Main` pre-mutex for duplicate-launch safety (covers the winget-upgrade path drift).
+- INI size cap (64 KB) to prevent OOM on a user-writeable config.
+- Enter/Esc accept/cancel on all 3 dialogs + AccessibleName on dialog buttons.
+- Assembly metadata (Company/Product/Copyright/FileVersion/InformationalVersion) embedded in the exe for SmartScreen reputation and Explorer's Properties tab.

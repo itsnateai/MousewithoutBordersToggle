@@ -87,13 +87,19 @@ internal sealed class OsdForm : Form
             int w = 12 + 14 + (int)Math.Ceiling(labelSize.Width) + 16;
             int h = 32;
 
-            // Anchor above the real taskbar; fall back to monitor working area.
+            // Default anchor: bottom-right corner of the working area. WorkingArea
+            // already excludes the taskbar regardless of its edge (top / left / right /
+            // bottom), so this is safe for every taskbar orientation.
             var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
             int xPos = screen.WorkingArea.Right - w - 12;
             int yPos = screen.WorkingArea.Bottom - h - 8;
 
+            // Refine only when the taskbar is at the BOTTOM edge (rect.Top > 0).
+            // For top / left / right taskbars, Shell_TrayWnd's rect has Top == 0,
+            // which would place yPos off-screen — fall back to WorkingArea in those
+            // cases (handled by the default above).
             nint trayHwnd = FindWindow("Shell_TrayWnd", null);
-            if (trayHwnd != 0 && GetWindowRect(trayHwnd, out var rect))
+            if (trayHwnd != 0 && GetWindowRect(trayHwnd, out var rect) && rect.Top > 0)
             {
                 xPos = rect.Right - w - 12;
                 yPos = rect.Top - h - 8;
