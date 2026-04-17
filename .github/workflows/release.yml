@@ -40,10 +40,26 @@ jobs:
           cp bin/Release/net8.0-windows/win-x64/publish/MWBToggle.exe MWBToggle.exe
           sha256sum MWBToggle.exe > SHA256SUMS
 
+      - name: Extract release notes from CHANGELOG
+        shell: bash
+        run: |
+          awk -v ver="${{ steps.version.outputs.VERSION }}" '
+            /^## \[/ { if (p) exit; if (index($0, "[" ver "]")) p = 1; next }
+            p { print }
+          ' CHANGELOG.md > RELEASE_NOTES.md
+
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "::error::No CHANGELOG.md entry found for version ${{ steps.version.outputs.VERSION }} — release notes would be empty. Add a '## [${{ steps.version.outputs.VERSION }}]' section and re-tag."
+            exit 1
+          fi
+
+          echo "=== Release notes preview ==="
+          cat RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
           files: |
             MWBToggle.exe
             SHA256SUMS
