@@ -785,8 +785,10 @@ internal sealed class MWBToggleApp : ApplicationContext
             if (!File.Exists(PauseSidecarPath)) return;
 
             string raw = File.ReadAllText(PauseSidecarPath).Trim();
+            // "O" format preserves kind via the trailing Z — RoundtripKind alone is correct.
+            // Combining with AssumeUniversal throws ArgumentException (mutually exclusive).
             if (!DateTime.TryParseExact(raw, "O", CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal, out var due))
+                DateTimeStyles.RoundtripKind, out var due))
             {
                 // Garbage sidecar — clean up and treat as no active pause.
                 File.Delete(PauseSidecarPath);
