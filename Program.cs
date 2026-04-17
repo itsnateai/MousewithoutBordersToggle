@@ -61,16 +61,17 @@ internal static class Program
         }
         finally
         {
-            // ReleaseMutex throws ApplicationException if the current thread doesn't
-            // own the mutex. Normal exits own it (we acquired on construction with
-            // initiallyOwned: true and createdNew == true). But in rare edge cases
-            // — thread-identity shift during Application.Run, an abandoned mutex,
-            // STA-thread-pool hand-off — it can fire. Swallow it so:
-            //   1. The original exception from Application.Run (if any) isn't masked.
-            //   2. mutex.Dispose() still runs and the handle is released to the OS.
-            // Dispose itself is documented not to throw.
+            // Belt-and-suspenders. In this specific code path — [STAThread] Main,
+            // initiallyOwned: true, createdNew == true gate, Application.Run on the
+            // same thread — ReleaseMutex() cannot actually throw: mutex ownership is
+            // thread-affine and the message pump never hops threads. The try/catch
+            // is purely defensive so that if some future refactor (async Main, STA
+            // hand-off, etc.) breaks that invariant, mutex.Dispose() still runs
+            // and the original exception (if any) isn't masked by ApplicationException.
+            // If you're editing Main, understand that *today* this catch is never
+            // entered; keep it only if you're introducing a change that could.
             try { mutex.ReleaseMutex(); }
-            catch (ApplicationException) { /* not owned by this thread — we're exiting anyway */ }
+            catch (ApplicationException) { /* unreachable today — see comment above */ }
             mutex.Dispose();
         }
     }
