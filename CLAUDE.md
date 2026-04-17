@@ -59,7 +59,7 @@ Optional `MWBToggle.ini` next to the exe:
 
 ## Conventions
 
-- OSD uses floating tooltip at cursor (no toast/TrayTip spam)
+- OSD is a discreet dark bubble pinned above the system tray with a colored state dot (green = sharing ON, red = OFF/paused, gray = info). Canonical template at `_.claude/_templates/snippets/csharp/osd-tooltip.md`. Never use toast/TrayTip/MessageBox/cursor-anchored tooltips.
 - Left-click tray icon = toggle, middle-click = MWB settings
 - Pause feature: temporary disable with auto-resume (5 min / 30 min / Until resumed). Pause tracks absolute UTC time and survives sleep via `SystemEvents.PowerModeChanged`.
 - Manual toggle (hotkey or menu) clears any active pause.
@@ -67,10 +67,12 @@ Optional `MWBToggle.ini` next to the exe:
 - FileSystemWatcher has a short self-write suppression window; if the settings dir doesn't exist yet, a bootstrap watcher waits for it to appear.
 - Run at startup via Windows Startup folder shortcut (not registry).
 - Self-update: SHA256-verified download, `.old` kept until new version writes `.ok` sentinel on successful startup.
-- Dual release: framework-dependent (~280KB) + self-contained (~147MB).
+- Release artifact: self-contained single-file exe (~147MB, no .NET runtime needed). Distributed via GitHub Releases + WinGet.
 
 ## Status
 
-**v2.5.0 — LTR (hardened)**
+**v2.5.1 — LTR**
 
-Deep audit resolved: MOD_NOREPEAT on hotkey, atomic settings writes, TransferFile regex verify, hotkey picker handles Win-modifier + rejects unsupported keys with a visible error, pause timer is sleep-aware and cleared by manual toggles, watcher bootstraps from parent dir when MWB isn't installed yet, per-session mutex (prevents cross-session DoS), SHA256SUMS published by release workflow, rollback sentinel, tiny rolling log at `%LOCALAPPDATA%\MWBToggle\`.
+Carries all v2.5.0 hardening: MOD_NOREPEAT on hotkey, atomic settings writes, TransferFile regex verify, hotkey picker handles Win-modifier + rejects unsupported keys with a visible error, pause timer is sleep-aware and cleared by manual toggles, watcher bootstraps from parent dir when MWB isn't installed yet, per-session mutex, SHA256SUMS published by release workflow, rollback sentinel, tiny rolling log at `%LOCALAPPDATA%\MWBToggle\`.
+
+**v2.5.1 adds:** discreet OSD bubble pinned above the system tray (replaces the cursor-anchored tooltip that clipped off-screen on tray clicks) with a green/red state dot. Canonical C# tooltip template codified at `_.claude/_templates/snippets/csharp/osd-tooltip.md`.

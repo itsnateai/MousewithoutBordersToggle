@@ -100,9 +100,8 @@ internal sealed class MWBToggleApp : ApplicationContext
         "MWBToggle.lnk");
     private string _configDir = null!; // Resolved in LoadConfig()
 
-    // ── OSD tooltip ────────────────────────────────────────────────────────
-    private Form? _osdForm;
-    private System.Windows.Forms.Timer? _osdTimer;
+    // ── OSD tooltip (discreet, pinned above the system tray) ──────────────
+    private readonly OsdForm _osd = new();
 
     // ── SyncTray state cache (avoid allocations every 5s) ────────────────
     private bool _lastSyncState;
@@ -338,8 +337,8 @@ internal sealed class MWBToggleApp : ApplicationContext
             WaitWithMessagePump(300);
             SyncTray();
 
-            string newState = currentlyOn ? "OFF" : "ON";
-            ShowOSD("MWBToggle: Clipboard & File Transfer " + newState);
+            bool nowOn = !currentlyOn;
+            ShowOSDState("MWBToggle: Clipboard & File Transfer " + (nowOn ? "ON" : "OFF"), nowOn);
 
             if (_soundFeedback)
                 Beep(currentlyOn ? 400u : 800u, 150);
@@ -628,7 +627,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         string msg = minutes > 0
             ? $"MWBToggle: Sharing paused for {minutes} minutes."
             : "MWBToggle: Sharing paused until resumed.";
-        ShowOSD(msg);
+        ShowOSDState(msg, on: false);
     }
 
     private void ResumeSharing()
@@ -653,7 +652,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (m.Success && m.Groups[1].Value == "false")
             DoToggle(confirm: false);
 
-        ShowOSD("MWBToggle: Sharing resumed.");
+        ShowOSDState("MWBToggle: Sharing resumed.", on: true);
     }
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
@@ -917,7 +916,9 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         WaitWithMessagePump(300);
         SyncTray();
-        ShowOSD("MWBToggle: File Transfer " + (transferOn ? "OFF" : "ON"));
+        // transferOn reflects the PREVIOUS state (pre-toggle), so "nowOn" inverts it.
+        bool nowOn = !transferOn;
+        ShowOSDState("MWBToggle: File Transfer " + (nowOn ? "ON" : "OFF"), nowOn);
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -1020,69 +1021,19 @@ internal sealed class MWBToggleApp : ApplicationContext
     // ╚══════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Show a lightweight tooltip at the mouse cursor position — matches the AHK
-    /// ToolTip() behavior exactly. Visible on whichever monitor the user is on,
-    /// no Windows toast/Action Center spam.
+    /// Show a discreet OSD pinned above the system tray. Mirrors MicMute/SyncTray
+    /// style: dark bubble + state dot, click-through, auto-dismiss, no Action Center spam.
     /// </summary>
     private void ShowOSD(string message, int durationMs = 3000)
-    {
-        // Dispose previous OSD if still showing
-        if (_osdTimer != null)
-        {
-            _osdTimer.Stop();
-            _osdTimer.Dispose();
-            _osdTimer = null;
-        }
-        if (_osdForm != null)
-        {
-            _osdForm.Close();
-            _osdForm.Dispose();
-            _osdForm = null;
-        }
+        => _osd.ShowMessage(message, durationMs, OsdForm.State.Info);
 
-        var form = new Form
-        {
-            FormBorderStyle = FormBorderStyle.None,
-            ShowInTaskbar = false,
-            TopMost = true,
-            StartPosition = FormStartPosition.Manual,
-            BackColor = Color.FromArgb(255, 255, 225), // classic tooltip yellow
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Padding = new Padding(6, 4, 6, 4)
-        };
-
-        var label = new Label
-        {
-            Text = message,
-            AutoSize = true,
-            ForeColor = Color.Black,
-            Font = SystemFonts.StatusFont ?? SystemFonts.DefaultFont,
-            Padding = new Padding(2)
-        };
-        form.Controls.Add(label);
-
-        // Position at cursor
-        var cursor = Cursor.Position;
-        form.Location = new Point(cursor.X + 16, cursor.Y + 16);
-
-        form.Show();
-        _osdForm = form;
-
-        // Auto-dismiss after duration — reuse timer pattern, dispose on fire
-        var timer = new System.Windows.Forms.Timer { Interval = durationMs };
-        _osdTimer = timer;
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            timer.Dispose();
-            form.Close();
-            form.Dispose();
-            if (_osdTimer == timer) _osdTimer = null;
-            if (_osdForm == form) _osdForm = null;
-        };
-        timer.Start();
-    }
+    /// <summary>
+    /// Show the OSD with a colored state dot — green for ON, red for OFF.
+    /// Use for toggle/pause/resume state changes so the user can read the result
+    /// from the dot color at a glance.
+    /// </summary>
+    private void ShowOSDState(string message, bool on, int durationMs = 3000)
+        => _osd.ShowMessage(message, durationMs, on ? OsdForm.State.On : OsdForm.State.Off);
 
     // ╔══════════════════════════════════════════════════════════════════════╗
     // ║  Config                                                              ║
@@ -1225,10 +1176,8 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pauseTimer.Stop();
         _pauseTimer.Dispose();
         _messageWindow.DestroyHandle();
-        _osdTimer?.Stop();
-        _osdTimer?.Dispose();
-        _osdForm?.Close();
-        _osdForm?.Dispose();
+        _osd.Close();
+        _osd.Dispose();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         Application.Exit();
@@ -1246,8 +1195,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             _debounceTimer?.Dispose();
             _pauseTimer.Dispose();
             _messageWindow.DestroyHandle();
-            _osdTimer?.Dispose();
-            _osdForm?.Dispose();
+            _osd.Dispose();
             _trayIcon.Dispose();
             _menu.Dispose();
             _aboutForm?.Dispose();

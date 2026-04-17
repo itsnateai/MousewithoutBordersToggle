@@ -2,6 +2,12 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.1] — 2026-04-16 — new LTR
+
+### OSD polish
+- **Tooltip no longer shows up off the bottom of the screen** when you click the tray icon. It's now pinned just above the system tray, same as MicMute and SyncTray.
+- **Discreet dark bubble** with a colored state dot — green when sharing turns ON, red when it turns OFF or pauses. Easier to read the result from the corner of your eye without parsing the text.
+
 ## [2.5.0] — 2026-04-16
 
 ### Reliability
