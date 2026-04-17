@@ -106,7 +106,8 @@ internal sealed class UpdateDialog : Form
         };
         _btnCancel.Click += (_, _) =>
         {
-            _cts?.Cancel();
+            try { _cts?.Cancel(); }
+            catch (ObjectDisposedException) { /* rapid double-click race with Dispose */ }
             DialogResult = DialogResult.Cancel;
             Close();
         };
@@ -351,6 +352,16 @@ internal sealed class UpdateDialog : Form
             // Verify SHA256 hash if the release includes a SHA256SUMS file
             if (!string.IsNullOrEmpty(_hashFileUrl))
             {
+                // Tighten the hash-URL origin check to match _downloadUrl at line ~341.
+                // The general UrlAllowlist would also let through api.github.com paths,
+                // but a release asset must come from github.com/itsnateai/… or the CDN.
+                if (!_hashFileUrl.StartsWith("https://github.com/itsnateai/", StringComparison.OrdinalIgnoreCase) &&
+                    !_hashFileUrl.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
+                {
+                    ShowError("Update failed: hash URL is not from the expected source.", _hashFileUrl);
+                    return;
+                }
+
                 _lblStatus.Text = "Verifying integrity...";
                 try
                 {
@@ -617,7 +628,7 @@ internal sealed class UpdateDialog : Form
             var toastFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
             var lbl = new Label
             {
-                Text = $"\u2705 {AppName} updated to v{version}!",
+                Text = $"{AppName} updated to v{version}",
                 AutoSize = true,
                 Font = toastFont,
                 ForeColor = Color.FromArgb(30, 30, 30)
