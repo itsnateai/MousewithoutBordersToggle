@@ -10,10 +10,12 @@
 ### Tray menu
 - **Clipboard Sharing has its own toggle.** The tray menu now lets you flip clipboard sharing independently of file transfer, instead of both moving together.
 - **A second hotkey can be bound for File Transfer alone.** Leaves the primary hotkey free to toggle Clipboard + File together, so you can disable just the file side without losing copy/paste across screens.
+- **Clicking a pause option that's already active now resumes instead of restarting the timer.** Previously clicking "30 minutes" while it was already checked just re-armed another 30 minutes, with no way to cancel an "Until resumed" pause except the manual toggle.
 - **Picker no longer triggers other apps' hotkeys.** While capturing a new hotkey, the key combo is suppressed from the rest of Windows — pressing a shortcut to rebind it won't also fire whatever else is listening for it.
 
 ### Polish
 - **OSD bubble matches MicMute and SyncTray exactly.**
+- **"Clipboard + Transfer"** reads more clearly than the old `Clipboard/Transfer` label in the Hotkeys submenu.
 - **Fresh installs now default to `Win+Ctrl+Shift+F`** (was `Ctrl+Alt+C`). Existing `MWBToggle.ini` files keep whatever hotkey they already had.
 
 ## [2.5.2] — 2026-04-17 — new LTR

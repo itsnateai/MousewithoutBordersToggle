@@ -147,7 +147,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             hd.ShowCheckMargin = true;
         }
 
-        var hotkeyItem = new ToolStripMenuItem("Clipboard/Transfer: " + HotkeyToReadable(_hotkey));
+        var hotkeyItem = new ToolStripMenuItem("Clipboard + Transfer: " + HotkeyToReadable(_hotkey));
         hotkeyItem.Click += (_, _) => ChangeHotkey(hotkeyItem);
         hotkeysMenu.DropDownItems.Add(hotkeyItem);
 
@@ -162,10 +162,12 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Toggle action
         _menu.Items.Add(new ToolStripMenuItem("Toggle Sharing", null, (_, _) => DoToggle()));
 
-        // Pause sharing submenu
-        _pause5 = new ToolStripMenuItem("5 minutes", null, (_, _) => PauseSharing(5));
-        _pause30 = new ToolStripMenuItem("30 minutes", null, (_, _) => PauseSharing(30));
-        _pauseUnlimited = new ToolStripMenuItem("Until resumed", null, (_, _) => PauseSharing(0));
+        // Pause sharing submenu. Click-while-checked resumes; click-while-unchecked starts
+        // a pause of that duration. Matches the checkmark-as-toggle mental model users have
+        // when they see a checkmark next to a menu item.
+        _pause5 = new ToolStripMenuItem("5 minutes", null, (s, _) => TogglePause(s, 5));
+        _pause30 = new ToolStripMenuItem("30 minutes", null, (s, _) => TogglePause(s, 30));
+        _pauseUnlimited = new ToolStripMenuItem("Until resumed", null, (s, _) => TogglePause(s, 0));
         var pauseItem = new ToolStripMenuItem("Pause Sharing");
         pauseItem.DropDownItems.AddRange(new ToolStripItem[] { _pause5, _pause30, _pauseUnlimited });
         _menu.Items.Add(pauseItem);
@@ -279,9 +281,17 @@ internal sealed class MWBToggleApp : ApplicationContext
         SyncTray();
 
         // Re-attach any pause that was pending when we last exited (or reboot killed us).
-        // Must run after _pauseTimer + PowerModeChanged are wired and after SyncTray so
-        // the tray reflects current MWB state before any restore-triggered toggle.
-        RestorePauseDeadlineOnStartup();
+        // Deferred to the first message-loop tick so the OSD form has a chance to paint
+        // (showing it mid-constructor misses the first WM_PAINT cycle and the user sees
+        // nothing). Must also run after _pauseTimer + PowerModeChanged + SyncTray.
+        var restoreTimer = new System.Windows.Forms.Timer { Interval = 1 };
+        restoreTimer.Tick += (s, _) =>
+        {
+            restoreTimer.Stop();
+            restoreTimer.Dispose();
+            RestorePauseDeadlineOnStartup();
+        };
+        restoreTimer.Start();
 
         // Tell the self-updater we reached running state — safe to drop .old rollback
         // on the next launch. If we crashed before this, .old persists for recovery.
@@ -665,6 +675,16 @@ internal sealed class MWBToggleApp : ApplicationContext
     // ╔══════════════════════════════════════════════════════════════════════╗
     // ║  Pause / Resume                                                      ║
     // ╚══════════════════════════════════════════════════════════════════════╝
+
+    // Menu-click dispatcher. If the item is already checked (pause is active in that mode),
+    // resume instead of re-firing the pause — matches the checkmark-as-toggle UI contract.
+    private void TogglePause(object? sender, int minutes)
+    {
+        if (sender is ToolStripMenuItem item && item.Checked)
+            ResumeSharing();
+        else
+            PauseSharing(minutes);
+    }
 
     private void PauseSharing(int minutes)
     {
@@ -1184,7 +1204,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             secondaryCleared = true;
         }
 
-        hotkeyMenuItem.Text = "Clipboard/Transfer: " + HotkeyToReadable(_hotkey);
+        hotkeyMenuItem.Text = "Clipboard + Transfer: " + HotkeyToReadable(_hotkey);
         var toSave = secondaryCleared
             ? new[] { ("Hotkey", _hotkey), ("FileTransferHotkey", "") }
             : new[] { ("Hotkey", _hotkey) };
