@@ -125,9 +125,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         // ── Build context menu ─────────────────────────────────────────────
         _menu = new ContextMenuStrip();
 
-        // Title bar
-        var titleItem = new ToolStripMenuItem($"MWBToggle v{Version}") { Enabled = false };
+        // Title bar — click opens About
+        var titleItem = new ToolStripMenuItem($"MWBToggle v{Version}", null, (_, _) => ShowAbout());
         titleItem.Font = new Font(titleItem.Font, FontStyle.Bold);
+        titleItem.ToolTipText = "About MWBToggle";
         _menu.Items.Add(titleItem);
         _menu.Items.Add(new ToolStripSeparator());
 
@@ -152,8 +153,6 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // PowerToys submenu
         var powerToysMenu = new ToolStripMenuItem("PowerToys");
-        powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("About", null, (_, _) => ShowAbout()));
-        powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
         powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("Open PowerToys", null, (_, _) => OpenPowerToys()));
         powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("MWB Settings", null, (_, _) => OpenMwbSettings()));
         powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
