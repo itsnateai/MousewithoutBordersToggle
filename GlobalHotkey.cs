@@ -6,7 +6,7 @@ namespace MWBToggle;
 
 /// <summary>
 /// Registers a system-wide hotkey using Win32 RegisterHotKey/UnregisterHotKey.
-/// Parses AHK-style hotkey strings (e.g. "^!c" for Ctrl+Alt+C).
+/// Parses AHK-style hotkey strings (e.g. "#^+f" for Win+Ctrl+Shift+F).
 /// </summary>
 internal sealed class GlobalHotkey : IDisposable
 {
@@ -32,25 +32,49 @@ internal sealed class GlobalHotkey : IDisposable
     private bool _disposed;
 
     /// <summary>
-    /// Register a global hotkey. If parsing or registration fails, falls back to Ctrl+Alt+C
-    /// and updates <paramref name="ahkHotkey"/> so the caller's field reflects
-    /// the actual registered hotkey (mirrors AHK line 73: g_hotkey := "^!c").
+    /// True if RegisterHotKey succeeded for the requested combo (before any fallback).
+    /// Also true when the fallback binding succeeded. False only when registration
+    /// failed AND fallback was disabled — caller should Dispose and surface the error.
     /// </summary>
-    /// <param name="onWarning">Optional callback for warning messages (replaces MessageBox).</param>
-    public GlobalHotkey(ref string ahkHotkey, Action callback, Action<string>? onWarning = null)
+    public bool IsRegistered { get; }
+
+    /// <summary>
+    /// Register a global hotkey.
+    ///
+    /// When <paramref name="allowFallback"/> is true (primary / required hotkey) and
+    /// parsing or registration fails, this falls back to Win+Ctrl+Shift+F and updates
+    /// <paramref name="ahkHotkey"/> to reflect the actual registered binding.
+    ///
+    /// When <paramref name="allowFallback"/> is false (optional / secondary hotkey),
+    /// failure leaves the instance in an unregistered state with <see cref="IsRegistered"/>
+    /// false, so the caller can show a specific error instead of silently clobbering
+    /// the primary hotkey's combo.
+    /// </summary>
+    public GlobalHotkey(ref string ahkHotkey, Action callback,
+                        Action<string>? onWarning = null,
+                        bool allowFallback = true)
     {
         bool parsed = ParseAhkHotkey(ahkHotkey, out uint modifiers, out uint vk);
 
         _window = new HotkeyWindow(callback);
 
-        if (!parsed || !RegisterHotKey(_window.Handle, HOTKEY_ID, modifiers | MOD_NOREPEAT, vk))
+        if (parsed && RegisterHotKey(_window.Handle, HOTKEY_ID, modifiers | MOD_NOREPEAT, vk))
         {
-            onWarning?.Invoke($"Invalid hotkey: {ahkHotkey} — falling back to Ctrl+Alt+C.");
-
-            ahkHotkey = "^!c";
-            RegisterHotKey(_window.Handle, HOTKEY_ID,
-                MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, (uint)Keys.C);
+            IsRegistered = true;
+            return;
         }
+
+        if (!allowFallback)
+        {
+            onWarning?.Invoke($"Could not register {ahkHotkey} — already taken.");
+            IsRegistered = false;
+            return;
+        }
+
+        onWarning?.Invoke($"Invalid hotkey: {ahkHotkey} — falling back to Win+Ctrl+Shift+F.");
+        ahkHotkey = "#^+f";
+        IsRegistered = RegisterHotKey(_window.Handle, HOTKEY_ID,
+            MOD_WIN | MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, (uint)Keys.F);
     }
 
     /// <summary>
@@ -129,6 +153,35 @@ internal sealed class GlobalHotkey : IDisposable
             _           => 0
         };
         return vk != 0;
+    }
+
+    /// <summary>
+    /// Trial-register a hotkey without keeping it. Returns true if Windows accepts the
+    /// combo (i.e. not already held by another app / the OS). Note: some Win+Key combos
+    /// (Win+L, Win+D, etc) may pass this check but still be intercepted by Windows at
+    /// keystroke time — those cannot be detected without actually pressing the key.
+    /// </summary>
+    public static bool CanRegister(string ahkHotkey)
+    {
+        if (!ParseAhkHotkey(ahkHotkey, out uint modifiers, out uint vk))
+            return false;
+
+        var probe = new NativeWindow();
+        try
+        {
+            probe.CreateHandle(new CreateParams());
+            // Use a different probe ID so we don't collide with any instance's live binding.
+            const int PROBE_ID = HOTKEY_ID ^ 0x1;
+            if (!RegisterHotKey(probe.Handle, PROBE_ID, modifiers | MOD_NOREPEAT, vk))
+                return false;
+            UnregisterHotKey(probe.Handle, PROBE_ID);
+            return true;
+        }
+        finally
+        {
+            if (probe.Handle != IntPtr.Zero)
+                probe.DestroyHandle();
+        }
     }
 
     public void Dispose()

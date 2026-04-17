@@ -51,7 +51,8 @@ internal sealed class MWBToggleApp : ApplicationContext
     private const int VK_RWIN = 0x5C;
 
     // ── Configuration (defaults, overridden by MWBToggle.ini) ──────────────
-    private string _hotkey = "^!c";   // Ctrl+Alt+C
+    private string _hotkey = "#^+f";         // Win+Ctrl+Shift+F (fresh-install default)
+    private string _fileTransferHotkey = ""; // empty = unbound
     private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         @"Microsoft\PowerToys\MouseWithoutBorders\settings.json");
@@ -79,9 +80,12 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly ToolStripMenuItem _pause30;
     private readonly ToolStripMenuItem _pauseUnlimited;
     private readonly ToolStripMenuItem _middleClickItem;
+    private readonly ToolStripMenuItem _clipboardItem;
     private readonly ToolStripMenuItem _transferFileItem;
     private readonly ToolStripMenuItem _singleClickItem;
     private GlobalHotkey _globalHotkey;
+    private GlobalHotkey? _fileTransferGlobalHotkey;
+    private ToolStripMenuItem? _fileTransferHotkeyItem;
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
     private FileSystemWatcher? _fileWatcher;
@@ -133,9 +137,25 @@ internal sealed class MWBToggleApp : ApplicationContext
         _menu.Items.Add(new ToolStripSeparator());
 
         // Hotkey display (clickable — opens hotkey change dialog)
-        var hotkeyItem = new ToolStripMenuItem("Hotkey: " + HotkeyToReadable(_hotkey));
+        // Hotkeys collected into a submenu to keep the root narrow.
+        // Matches the PowerToys submenu's padding (narrow check column, no image column).
+        var hotkeysMenu = new ToolStripMenuItem("Hotkeys");
+        if (hotkeysMenu.DropDown is ToolStripDropDownMenu hd)
+        {
+            hd.ShowImageMargin = false;
+            hd.ShowCheckMargin = true;
+        }
+
+        var hotkeyItem = new ToolStripMenuItem("Clipboard/Transfer: " + HotkeyToReadable(_hotkey));
         hotkeyItem.Click += (_, _) => ChangeHotkey(hotkeyItem);
-        _menu.Items.Add(hotkeyItem);
+        hotkeysMenu.DropDownItems.Add(hotkeyItem);
+
+        _fileTransferHotkeyItem = new ToolStripMenuItem(
+            "File Transfer: " + (_fileTransferHotkey.Length == 0 ? "(none)" : HotkeyToReadable(_fileTransferHotkey)));
+        _fileTransferHotkeyItem.Click += (_, _) => ChangeFileTransferHotkey(_fileTransferHotkeyItem);
+        hotkeysMenu.DropDownItems.Add(_fileTransferHotkeyItem);
+
+        _menu.Items.Add(hotkeysMenu);
         _menu.Items.Add(new ToolStripSeparator());
 
         // Toggle action
@@ -151,8 +171,13 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         _menu.Items.Add(new ToolStripSeparator());
 
-        // PowerToys submenu
+        // PowerToys submenu — slim: kill the wide image margin, keep the check column
         var powerToysMenu = new ToolStripMenuItem("PowerToys");
+        if (powerToysMenu.DropDown is ToolStripDropDownMenu pd)
+        {
+            pd.ShowImageMargin = false;
+            pd.ShowCheckMargin = true;
+        }
         powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("Open PowerToys", null, (_, _) => OpenPowerToys()));
         powerToysMenu.DropDownItems.Add(new ToolStripMenuItem("MWB Settings", null, (_, _) => OpenMwbSettings()));
         powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
@@ -167,6 +192,9 @@ internal sealed class MWBToggleApp : ApplicationContext
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
         powerToysMenu.DropDownItems.Add(_middleClickItem);
         powerToysMenu.DropDownItems.Add(new ToolStripSeparator());
+        _clipboardItem = new ToolStripMenuItem("Clipboard Sharing", null, (_, _) => ToggleShareClipboard());
+        _clipboardItem.Checked = true; // SyncTray will set the real state
+        powerToysMenu.DropDownItems.Add(_clipboardItem);
         _transferFileItem = new ToolStripMenuItem("File Transfer", null, (_, _) => ToggleTransferFile());
         _transferFileItem.Checked = true; // SyncTray will set the real state
         powerToysMenu.DropDownItems.Add(_transferFileItem);
@@ -190,6 +218,23 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // ── Global hotkey (may update _hotkey on fallback) ─────────────────
         _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD("MWBToggle: " + msg, 5000));
+
+        // File Transfer hotkey is optional — only register if the user configured one.
+        // allowFallback:false means a failed registration leaves IsRegistered=false rather
+        // than silently re-using the primary's ^!c combo.
+        if (!string.IsNullOrEmpty(_fileTransferHotkey))
+        {
+            _fileTransferGlobalHotkey = new GlobalHotkey(
+                ref _fileTransferHotkey, ToggleTransferFile,
+                msg => ShowOSD("MWBToggle: " + msg, 5000),
+                allowFallback: false);
+            if (!_fileTransferGlobalHotkey.IsRegistered)
+            {
+                _fileTransferGlobalHotkey.Dispose();
+                _fileTransferGlobalHotkey = null;
+                _fileTransferHotkey = "";
+            }
+        }
 
         // ── Message window for TaskbarCreated (Explorer restart recovery) ──
         _messageWindow = new MessageWindow(RegisterWindowMessage("TaskbarCreated"), () =>
@@ -598,6 +643,9 @@ internal sealed class MWBToggleApp : ApplicationContext
             _lastSyncInitialized = true;
             _trayIcon.Icon = clipOn ? _iconOn : _iconOff;
             _trayIcon.Text = clipOn ? TrayTextOn : TrayTextOff;
+            _clipboardItem.Checked = clipOn;
+            // File Transfer depends on clipboard — grey it out when clipboard is OFF
+            _transferFileItem.Enabled = clipOn;
         }
 
         if (fileOn != _lastTransferFileState)
@@ -787,67 +835,223 @@ internal sealed class MWBToggleApp : ApplicationContext
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
     }
 
+    // Return envelope for PromptForHotkey — null = cancelled, Unbind flag = clear binding,
+    // otherwise Ahk holds the chosen AHK-style string (validated and CanRegister-clean).
+    private sealed class HotkeyPickResult
+    {
+        public string Ahk { get; init; } = "";
+        public bool Unbind { get; init; }
+    }
+
     /// <summary>
-    /// Show a key-capture dialog to change the global hotkey.
-    /// The old hotkey is unregistered and the new one registered immediately.
+    /// Capture a hotkey with a preview + explicit Set / Cancel buttons. Pressing a key
+    /// combo only updates the preview; it does NOT bind. The user must click Set
+    /// (or Unbind) to commit — so just opening the dialog and touching a key doesn't
+    /// clobber the existing binding.
     /// </summary>
-    private void ChangeHotkey(ToolStripMenuItem hotkeyMenuItem)
+    /// <param name="title">Dialog title.</param>
+    /// <param name="currentAhk">Current binding (may be empty for unbound).</param>
+    /// <param name="allowUnbind">Show an Unbind button (for optional/secondary hotkeys).</param>
+    /// <param name="collisionCheck">Returns a rejection reason, or null if the combo is OK.</param>
+    private HotkeyPickResult? PromptForHotkey(string title, string currentAhk,
+                                              bool allowUnbind, Func<string, string?> collisionCheck)
     {
         using var form = new Form
         {
-            Text = "Set Hotkey",
+            Text = title,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
             MinimizeBox = false,
             StartPosition = FormStartPosition.CenterScreen,
             TopMost = true,
-            ClientSize = new Size(300, 115),
+            ClientSize = new Size(360, 170),
             KeyPreview = true
         };
 
         var label = new Label
         {
-            Text = "Press a key combination...\n(Ctrl/Alt/Shift/Win + key)",
+            Text = "Press a key combination to preview, then click Set.\n(Ctrl / Alt / Shift / Win + key)",
             AutoSize = false,
-            Size = new Size(280, 40),
+            Size = new Size(340, 38),
             Location = new Point(10, 10),
             TextAlign = ContentAlignment.MiddleCenter
         };
         form.Controls.Add(label);
 
-        var resultLabel = new Label
+        string currentDisplay = currentAhk.Length == 0 ? "(none)" : HotkeyToReadable(currentAhk);
+
+        var previewLabel = new Label
         {
-            Text = "Current: " + HotkeyToReadable(_hotkey),
+            Text = "Preview: " + currentDisplay,
             AutoSize = false,
-            Size = new Size(280, 20),
+            Size = new Size(340, 22),
             Location = new Point(10, 55),
-            TextAlign = ContentAlignment.MiddleCenter
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI Semibold", 10f)
         };
-        form.Controls.Add(resultLabel);
+        form.Controls.Add(previewLabel);
+
+        var statusLabel = new Label
+        {
+            Text = "Current: " + currentDisplay,
+            AutoSize = false,
+            Size = new Size(340, 20),
+            Location = new Point(10, 82),
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = Color.DimGray
+        };
+        form.Controls.Add(statusLabel);
+
+        string? previewAhk = null; // null until user presses a valid combo
+        bool previewOk = false;    // validated (CanRegister + collisionCheck)
+
+        var setBtn = new Button
+        {
+            Text = "Set",
+            Size = new Size(80, 28),
+            Location = new Point(allowUnbind ? 90 : 100, 125),
+            Enabled = false,
+            AccessibleName = "Commit the previewed hotkey"
+        };
+        form.Controls.Add(setBtn);
+
+        var unbindBtn = allowUnbind ? new Button
+        {
+            Text = "Unbind",
+            Size = new Size(80, 28),
+            Location = new Point(10, 125),
+            Enabled = currentAhk.Length > 0,
+            AccessibleName = "Remove the current hotkey binding"
+        } : null;
+        if (unbindBtn != null) form.Controls.Add(unbindBtn);
 
         var cancelBtn = new Button
         {
             Text = "Cancel",
             Size = new Size(80, 28),
-            Location = new Point(110, 80),
-            AccessibleName = "Cancel hotkey change and keep current binding"
+            Location = new Point(allowUnbind ? 180 : 190, 125),
+            AccessibleName = "Close without changing the binding"
         };
-        cancelBtn.Click += (_, _) => form.Close();
         form.Controls.Add(cancelBtn);
-
-        // Esc closes without changing the hotkey. The KeyDown handler below bails early
-        // on bare Esc (no modifiers), so the keypress bubbles to CancelButton.
         form.CancelButton = cancelBtn;
+        form.AcceptButton = setBtn;
 
+        // The hook is created in form.Shown and nulled here in FormClosed, so button
+        // handlers need access to it to Dispose BEFORE form.Close() — otherwise an
+        // in-flight BeginInvoke callback could touch a disposed form.
+        HookHotkeyCapture? capture = null;
+
+        HotkeyPickResult? result = null;
+        setBtn.Click += (_, _) =>
+        {
+            if (previewAhk == null || !previewOk) return;
+            capture?.Dispose(); capture = null;
+            result = new HotkeyPickResult { Ahk = previewAhk };
+            form.Close();
+        };
+        if (unbindBtn != null)
+            unbindBtn.Click += (_, _) =>
+            {
+                capture?.Dispose(); capture = null;
+                result = new HotkeyPickResult { Unbind = true };
+                form.Close();
+            };
+        cancelBtn.Click += (_, _) =>
+        {
+            capture?.Dispose(); capture = null;
+            form.Close();
+        };
+
+        // Shared validation + UI update. Invoked by both the low-level hook and,
+        // as a fallback, the form's own KeyDown (e.g. if the hook ever fails to install).
+        void HandleCapturedCombo(string ahk)
+        {
+            // Defensive: hook callbacks may race with form teardown.
+            if (form.IsDisposed || !form.IsHandleCreated) return;
+
+            previewAhk = ahk;
+            previewLabel.Text = "Preview: " + HotkeyToReadable(ahk);
+
+            // Windows enforces certain Win+* combos (Win+L lock, Win+D desktop, etc)
+            // at a layer BELOW the low-level hook AND below RegisterHotKey — they pass
+            // our CanRegister probe but are non-functional in practice. Reject upfront.
+            if (IsWindowsReservedCombo(ahk))
+            {
+                statusLabel.Text = "Windows reserves this combo — it cannot be overridden.";
+                statusLabel.ForeColor = Color.Firebrick;
+                setBtn.Enabled = false;
+                previewOk = false;
+                return;
+            }
+
+            string? collisionMsg = collisionCheck(ahk);
+            if (collisionMsg != null)
+            {
+                statusLabel.Text = collisionMsg;
+                statusLabel.ForeColor = Color.Firebrick;
+                setBtn.Enabled = false;
+                previewOk = false;
+            }
+            else if (!GlobalHotkey.CanRegister(ahk))
+            {
+                statusLabel.Text = "Reserved by Windows or another app — try a different combo.";
+                statusLabel.ForeColor = Color.Firebrick;
+                setBtn.Enabled = false;
+                previewOk = false;
+            }
+            else
+            {
+                statusLabel.Text = "Ready — click Set (or press Enter) to bind.";
+                statusLabel.ForeColor = Color.SeaGreen;
+                setBtn.Enabled = true;
+                previewOk = true;
+            }
+        }
+
+        // Install the low-level keyboard hook once the dialog has a window handle.
+        // The hook intercepts modifier+key combos BEFORE any other app's RegisterHotKey
+        // can eat them, then hands us the AHK string to preview + validate.
+        bool hookInstalled = false;
+        form.Shown += (_, _) =>
+        {
+            capture = new HookHotkeyCapture(form.Handle, HandleCapturedCombo);
+            hookInstalled = capture.IsInstalled;
+            if (!hookInstalled)
+            {
+                statusLabel.Text = "Note: global hook unavailable — taken hotkeys may trigger their owning app.";
+                statusLabel.ForeColor = Color.DarkOrange;
+            }
+        };
+        form.FormClosed += (_, _) =>
+        {
+            capture?.Dispose();
+            capture = null;
+        };
+
+        // KeyDown path. Serves two roles:
+        //   1. Enter with an armed preview = Set (saves a mouse trip; always available).
+        //   2. Full combo capture fallback if the LL hook didn't install (hookInstalled=false).
+        //      Without this, a hook-failure scenario would leave the picker unable to
+        //      capture any modifier+key combo — the dialog would appear dead.
         form.KeyDown += (_, e) =>
         {
-            // Win key isn't in e.Modifiers (Keys.Modifiers = Shift|Ctrl|Alt only) — read via Win32.
+            // Enter = Set (works regardless of hook state).
+            if (e.Modifiers == Keys.None && e.KeyCode == Keys.Return &&
+                previewAhk != null && previewOk)
+            {
+                setBtn.PerformClick();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (hookInstalled) return; // hook handles combos
+
+            // --- Fallback capture path (hook failed to install) -----------------
             bool winDown = (GetKeyState(VK_LWIN) & 0x8000) != 0
                         || (GetKeyState(VK_RWIN) & 0x8000) != 0;
-
             if (e.Modifiers == Keys.None && !winDown) return;
 
-            // Ignore while the user is still pressing only modifier keys.
             var key = e.KeyCode & ~Keys.Modifiers;
             if (key is Keys.ControlKey or Keys.ShiftKey or Keys.Menu or Keys.LWin or Keys.RWin)
                 return;
@@ -859,20 +1063,10 @@ internal sealed class MWBToggleApp : ApplicationContext
                 >= Keys.F1 and <= Keys.F12 => key.ToString(),
                 Keys.Space  => "Space",
                 Keys.Return => "Enter",
-                Keys.Escape => "Escape",
                 Keys.Tab    => "Tab",
-                Keys.Back   => "Backspace",
-                Keys.Delete => "Delete",
                 _ => null
             };
-
-            if (keyPart == null)
-            {
-                resultLabel.Text = "Unsupported key — use A-Z, 0-9, or F1-F12.";
-                e.Handled = true;
-                e.SuppressKeyPress = true;
-                return;
-            }
+            if (keyPart == null) return;
 
             string ahk = "";
             if (e.Control) ahk += "^";
@@ -881,19 +1075,144 @@ internal sealed class MWBToggleApp : ApplicationContext
             if (winDown)   ahk += "#";
             ahk += keyPart;
 
-            _globalHotkey.Dispose();
-            _hotkey = ahk;
-            _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD("MWBToggle: " + msg, 5000));
-
-            hotkeyMenuItem.Text = "Hotkey: " + HotkeyToReadable(_hotkey);
-            ShowOSD("MWBToggle: Hotkey set to " + HotkeyToReadable(_hotkey));
-            form.Close();
-
+            HandleCapturedCombo(ahk);
             e.Handled = true;
             e.SuppressKeyPress = true;
         };
 
         form.ShowDialog();
+        return result;
+    }
+
+    /// <summary>
+    /// Change the primary toggle hotkey. Uses the preview-then-Set picker.
+    /// </summary>
+    private void ChangeHotkey(ToolStripMenuItem hotkeyMenuItem)
+    {
+        // Primary can't collide with itself; return null = no collision.
+        var pick = PromptForHotkey("Set Hotkey (Toggle Sharing)", _hotkey, allowUnbind: false,
+            _ => null);
+        if (pick == null || pick.Unbind) return; // cancel / unbind not offered
+
+        _globalHotkey.Dispose();
+        _hotkey = pick.Ahk;
+        _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle,
+            msg => ShowOSD("MWBToggle: " + msg, 5000));
+
+        // If new primary collides with existing file-transfer binding, unbind the latter.
+        bool secondaryCleared = false;
+        if (!string.IsNullOrEmpty(_fileTransferHotkey) &&
+            string.Equals(_fileTransferHotkey, _hotkey, StringComparison.OrdinalIgnoreCase))
+        {
+            _fileTransferGlobalHotkey?.Dispose();
+            _fileTransferGlobalHotkey = null;
+            _fileTransferHotkey = "";
+            if (_fileTransferHotkeyItem != null)
+                _fileTransferHotkeyItem.Text = "File Transfer: (none)";
+            secondaryCleared = true;
+        }
+
+        hotkeyMenuItem.Text = "Clipboard/Transfer: " + HotkeyToReadable(_hotkey);
+        var toSave = secondaryCleared
+            ? new[] { ("Hotkey", _hotkey), ("FileTransferHotkey", "") }
+            : new[] { ("Hotkey", _hotkey) };
+        SaveConfig(toSave);
+        ShowOSD("MWBToggle: Hotkey set to " + HotkeyToReadable(_hotkey));
+    }
+
+    /// <summary>
+    /// Change the optional File Transfer scalpel hotkey. Supports Unbind.
+    /// </summary>
+    private void ChangeFileTransferHotkey(ToolStripMenuItem hotkeyMenuItem)
+    {
+        var pick = PromptForHotkey("Set File Transfer Hotkey", _fileTransferHotkey,
+            allowUnbind: true,
+            ahk => string.Equals(ahk, _hotkey, StringComparison.OrdinalIgnoreCase)
+                   ? "Already used by the main toggle hotkey."
+                   : null);
+
+        if (pick == null) return; // cancelled
+
+        if (pick.Unbind)
+        {
+            _fileTransferGlobalHotkey?.Dispose();
+            _fileTransferGlobalHotkey = null;
+            _fileTransferHotkey = "";
+            hotkeyMenuItem.Text = "File Transfer: (none)";
+            SaveConfig(new[] { ("FileTransferHotkey", "") });
+            ShowOSD("MWBToggle: File Transfer Hotkey cleared");
+            return;
+        }
+
+        _fileTransferGlobalHotkey?.Dispose();
+        _fileTransferHotkey = pick.Ahk;
+        _fileTransferGlobalHotkey = new GlobalHotkey(
+            ref _fileTransferHotkey, ToggleTransferFile,
+            msg => ShowOSD("MWBToggle: " + msg, 5000),
+            allowFallback: false);
+
+        // If registration failed even after CanRegister passed (tiny race window), don't
+        // leave the menu claiming a binding that doesn't actually work.
+        if (!_fileTransferGlobalHotkey.IsRegistered)
+        {
+            _fileTransferGlobalHotkey.Dispose();
+            _fileTransferGlobalHotkey = null;
+            _fileTransferHotkey = "";
+            hotkeyMenuItem.Text = "File Transfer: (none)";
+            SaveConfig(new[] { ("FileTransferHotkey", "") });
+            ShowOSD("MWBToggle: File Transfer hotkey could not be registered — try another combo.", 5000);
+            return;
+        }
+
+        hotkeyMenuItem.Text = "File Transfer: " + HotkeyToReadable(_fileTransferHotkey);
+        SaveConfig(new[] { ("FileTransferHotkey", _fileTransferHotkey) });
+        ShowOSD("MWBToggle: File Transfer Hotkey set to " + HotkeyToReadable(_fileTransferHotkey));
+    }
+
+    private void ToggleShareClipboard()
+    {
+        if (!File.Exists(_settingsPath)) return;
+        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
+
+        string json;
+        try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
+        catch { return; }
+
+        var clipMatch = ShareClipboardRegex.Match(json);
+        if (!clipMatch.Success)
+        {
+            ShowOSD("MWBToggle: ShareClipboard not found in settings.json — run MWB at least once.", 5000);
+            return;
+        }
+
+        bool clipboardOn = clipMatch.Groups[1].Value == "true";
+        string newClip = clipboardOn ? "false" : "true";
+
+        json = ShareClipboardReplaceRegex.Replace(json, "$1" + newClip);
+        // Turning clipboard OFF must also force TransferFile OFF — MWB's own dependency.
+        // Leaving transfer=true with clipboard=false leaves MWB in the illegal state
+        // that ToggleTransferFile refuses to create.
+        if (clipboardOn)
+            json = TransferFileReplaceRegex.Replace(json, "$1false");
+
+        var verifyClip = ShareClipboardRegex.Match(json);
+        if (!verifyClip.Success || verifyClip.Groups[1].Value != newClip)
+        {
+            Logger.Warn("ToggleShareClipboard verify failed — regex replace did not update.");
+            ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
+            return;
+        }
+
+        if (!WriteSettingsAtomic(json))
+        {
+            ShowOSD("MWBToggle: Could not write settings.json — file locked.", 5000);
+            return;
+        }
+
+        WaitWithMessagePump(300);
+        SyncTray();
+        bool nowOn = !clipboardOn;
+        ShowOSDState("MWBToggle: Clipboard Sharing " + (nowOn ? "ON" : "OFF"), nowOn);
     }
 
     private void ToggleTransferFile()
@@ -1118,6 +1437,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (!string.IsNullOrEmpty(val))
             _hotkey = val;
 
+        val = config.Get("Settings", "FileTransferHotkey");
+        if (!string.IsNullOrEmpty(val))
+            _fileTransferHotkey = val;
+
         val = config.Get("Settings", "ConfirmToggle");
         if (!string.IsNullOrEmpty(val))
             _confirmToggle = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -1135,6 +1458,102 @@ internal sealed class MWBToggleApp : ApplicationContext
             _singleClickToggles = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Persist the given settings keys back to the INI file chosen by LoadConfig.
+    /// Preserves existing comments and unknown keys: each passed key either replaces an
+    /// existing line under [Settings] or is appended at the end of that section (or of
+    /// the file if [Settings] doesn't exist yet). Writes atomically via .tmp + File.Replace.
+    ///
+    /// Only writes the INI if the user has already committed to persistent storage
+    /// (file exists) OR the app is winget-managed. A purely transient-default scenario
+    /// (first run, no INI, no winget) still creates the file so the chosen hotkey sticks.
+    /// </summary>
+    private void SaveConfig(IEnumerable<(string key, string value)> keys)
+    {
+        string iniPath = Path.Combine(_configDir, "MWBToggle.ini");
+        try
+        {
+            Directory.CreateDirectory(_configDir);
+
+            var lines = File.Exists(iniPath)
+                ? new List<string>(File.ReadAllLines(iniPath))
+                : new List<string>();
+
+            // Apply each (key, value) pair.
+            foreach (var (key, value) in keys)
+                ApplyIniKey(lines, "Settings", key, value);
+
+            string tmp = iniPath + ".tmp";
+            File.WriteAllLines(tmp, lines);
+            if (File.Exists(iniPath))
+                File.Replace(tmp, iniPath, iniPath + ".bak", ignoreMetadataErrors: true);
+            else
+                File.Move(tmp, iniPath);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"SaveConfig failed ({iniPath}): {ex.Message}");
+            ShowOSD("MWBToggle: Could not save settings — change will reset on restart.", 5000);
+        }
+    }
+
+    // In-place edit a list of INI lines: set [section].key = value. Replaces an existing
+    // key under that section, or appends it if the section is missing / key is new.
+    private static void ApplyIniKey(List<string> lines, string section, string key, string value)
+    {
+        string sectionMarker = "[" + section + "]";
+        int sectionStart = -1, sectionEnd = lines.Count;
+        for (int i = 0; i < lines.Count; i++)
+        {
+            string trimmed = lines[i].Trim();
+            if (trimmed.StartsWith("[") && trimmed.EndsWith("]"))
+            {
+                if (string.Equals(trimmed, sectionMarker, StringComparison.OrdinalIgnoreCase))
+                {
+                    sectionStart = i;
+                }
+                else if (sectionStart >= 0)
+                {
+                    sectionEnd = i;
+                    break;
+                }
+            }
+        }
+
+        string newLine = $"{key}={value}";
+
+        if (sectionStart < 0)
+        {
+            // Section doesn't exist — append.
+            if (lines.Count > 0 && !string.IsNullOrWhiteSpace(lines[^1]))
+                lines.Add("");
+            lines.Add(sectionMarker);
+            lines.Add(newLine);
+            return;
+        }
+
+        // Replace existing key, or append inside the section.
+        for (int i = sectionStart + 1; i < sectionEnd; i++)
+        {
+            string trimmed = lines[i].Trim();
+            if (trimmed.Length == 0 || trimmed[0] == ';' || trimmed[0] == '#') continue;
+            int eq = trimmed.IndexOf('=');
+            if (eq <= 0) continue;
+            string existingKey = trimmed[..eq].Trim();
+            if (string.Equals(existingKey, key, StringComparison.OrdinalIgnoreCase))
+            {
+                lines[i] = newLine;
+                return;
+            }
+        }
+
+        // Insert at the end of the section (trim trailing blank lines first).
+        int insertAt = sectionEnd;
+        while (insertAt > sectionStart + 1 && string.IsNullOrWhiteSpace(lines[insertAt - 1]))
+            insertAt--;
+        lines.Insert(insertAt, newLine);
+    }
+
     // ╔══════════════════════════════════════════════════════════════════════╗
     // ║  Helpers                                                             ║
     // ╚══════════════════════════════════════════════════════════════════════╝
@@ -1144,6 +1563,31 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// e.g. "^!c" -> "Ctrl + Alt + C"
     /// Uses a HashSet to deduplicate modifiers (e.g. "^^c" → "Ctrl + C").
     /// </summary>
+    // Win+Key combos that Windows enforces at the shell/SAS layer below hook dispatch.
+    // RegisterHotKey succeeds for these but pressing the combo still triggers the OS
+    // behaviour (lock screen, task view, run dialog, etc). Reject them at bind time
+    // rather than let users think they've bound a working hotkey.
+    private static readonly HashSet<string> WindowsReservedCombos = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "#l",  // Lock
+        "#d",  // Show desktop
+        "#e",  // Explorer
+        "#r",  // Run
+        "#p",  // Project display
+        "#u",  // Accessibility / Settings > Ease of Access
+        "#x",  // Power user menu
+        "#s",  // Search
+        "#i",  // Settings
+        "#k",  // Cast / Connect
+        "#a",  // Notification center / Action center
+        "#v",  // Clipboard history
+        "#Space", // Input language switch
+        "#Tab",   // Task view
+        "#Enter", // Narrator
+    };
+
+    private static bool IsWindowsReservedCombo(string ahk) => WindowsReservedCombos.Contains(ahk);
+
     internal static string HotkeyToReadable(string hk)
     {
         var seen = new HashSet<char>();
@@ -1205,6 +1649,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         _globalHotkey.Dispose();
+        _fileTransferGlobalHotkey?.Dispose();
         _fileWatcher?.Dispose();
         _debounceTimer?.Stop();
         _debounceTimer?.Dispose();
@@ -1225,6 +1670,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             _disposed = true;
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             _globalHotkey.Dispose();
+            _fileTransferGlobalHotkey?.Dispose();
             _fileWatcher?.Dispose();
             _debounceTimer?.Stop();
             _debounceTimer?.Dispose();

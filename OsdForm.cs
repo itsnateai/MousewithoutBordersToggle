@@ -89,20 +89,30 @@ internal sealed class OsdForm : Form
 
             // Default anchor: bottom-right corner of the working area. WorkingArea
             // already excludes the taskbar regardless of its edge (top / left / right /
-            // bottom), so this is safe for every taskbar orientation.
+            // bottom), so this is the safe fallback for every taskbar orientation.
+            // Canonical positioning pattern — ported from MicMute's OsdForm
+            // (the "tooltip template" standard for tray utilities).
             var screen = Screen.PrimaryScreen ?? Screen.AllScreens[0];
-            int xPos = screen.WorkingArea.Right - w - 12;
-            int yPos = screen.WorkingArea.Bottom - h - 8;
+            var workArea = screen.WorkingArea;
+            int xPos = workArea.Right - w - 12;
+            int yPos = workArea.Bottom - h - 8;
 
-            // Refine only when the taskbar is at the BOTTOM edge (rect.Top > 0).
-            // For top / left / right taskbars, Shell_TrayWnd's rect has Top == 0,
-            // which would place yPos off-screen — fall back to WorkingArea in those
-            // cases (handled by the default above).
+            // Try precise Shell_TrayWnd anchoring; accept it only if it stays
+            // inside the working area. Top / left / right taskbars put the
+            // naive anchor off-screen — the bounds check rejects those and
+            // the working-area fallback wins.
             nint trayHwnd = FindWindow("Shell_TrayWnd", null);
-            if (trayHwnd != 0 && GetWindowRect(trayHwnd, out var rect) && rect.Top > 0)
+            if (trayHwnd != 0 && GetWindowRect(trayHwnd, out var rect))
             {
-                xPos = rect.Right - w - 12;
-                yPos = rect.Top - h - 8;
+                int anchoredX = rect.Right - w - 12;
+                int anchoredY = rect.Top - h - 8;
+                if (anchoredY >= workArea.Top &&
+                    anchoredX >= workArea.Left &&
+                    anchoredX + w <= workArea.Right)
+                {
+                    xPos = anchoredX;
+                    yPos = anchoredY;
+                }
             }
 
             SetBounds(xPos, yPos, w, h);
