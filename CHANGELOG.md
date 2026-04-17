@@ -2,6 +2,19 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.7] — 2026-04-17
+
+### About dialog
+- **Copyright line** now shown under the "Open log folder" link: `© 2026 itsnateai · MIT License`.
+
+### Documentation
+- **README adds an FAQ section** covering uninstall, disabling run-at-startup without uninstalling, what the `.ok` sentinel is for, and why a stale tray icon after Exit means Explorer hasn't refreshed.
+- **`SingleClickToggles` INI key is documented** in the customization table (feature has been live since v2.4.0 but wasn't in the README).
+
+### Housekeeping
+- **Release workflow has a per-ref `concurrency:` guard.** A re-push of the same tag now queues behind the first run instead of racing two GitHub Release creations. Different tags still publish in parallel.
+- **No user-visible behavior change** beyond the About line — the remaining changes are documentation and CI.
+
 ## [2.5.6] — 2026-04-17
 
 ### Tray
