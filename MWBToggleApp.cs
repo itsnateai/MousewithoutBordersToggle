@@ -126,6 +126,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     private bool _lastSyncState;
     private bool _lastTransferFileState;
     private bool _lastSyncInitialized;
+    private string? _lastTooltip;
 
     public MWBToggleApp()
     {
@@ -240,6 +241,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         powerToysMenu.DropDownItems.Add(_transferFileItem);
         _menu.Items.Add(powerToysMenu);
 
+        _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
         // ── Tray icon ──────────────────────────────────────────────────────
@@ -538,6 +540,23 @@ internal sealed class MWBToggleApp : ApplicationContext
     // Pre-built tooltip strings — zero allocation on sync
     private static readonly string TrayTextOn  = $"MWBToggle v{Version} — Clipboard/Files: ON";
     private static readonly string TrayTextOff = $"MWBToggle v{Version} — Clipboard/Files: OFF";
+    private static readonly string TrayTextVersionPrefix = $"MWBToggle v{Version}";
+
+    // Compose the tray tooltip from the last-synced state + any active pause.
+    // Shell clamps NotifyIcon.Text at 127 chars; all formats below fit comfortably.
+    private string BuildTrayTooltip()
+    {
+        if (IsPauseActive)
+        {
+            if (_pauseResumeAtUtc is DateTime due)
+            {
+                string local = due.ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+                return $"{TrayTextVersionPrefix} — Paused (resumes {local})";
+            }
+            return $"{TrayTextVersionPrefix} — Paused";
+        }
+        return _lastSyncState ? TrayTextOn : TrayTextOff;
+    }
 
     /// <summary>
     /// Watch settings.json for changes instead of polling every 5s.
@@ -559,7 +578,14 @@ internal sealed class MWBToggleApp : ApplicationContext
             return;
         }
 
-        // Create debounce timer once — rapid FileSystemWatcher events restart it
+        // Create debounce timer — on FSW error-recovery re-entry, the previous
+        // timer must be disposed first or each recovery cycle leaks a WinForms
+        // Timer + Tick subscription.
+        if (_debounceTimer is not null)
+        {
+            _debounceTimer.Stop();
+            _debounceTimer.Dispose();
+        }
         _debounceTimer = new System.Windows.Forms.Timer { Interval = 300 };
         _debounceTimer.Tick += (_, _) =>
         {
@@ -699,14 +725,22 @@ internal sealed class MWBToggleApp : ApplicationContext
             return; // File locked — watcher will fire again on next write
         }
 
-        // Only update tray icon/text when state actually changes
+        // Only update tray icon when state actually changes
         if (!_lastSyncInitialized || clipOn != _lastSyncState)
         {
             _lastSyncState = clipOn;
             _lastSyncInitialized = true;
             _trayIcon.Icon = clipOn ? _iconOn : _iconOff;
-            _trayIcon.Text = clipOn ? TrayTextOn : TrayTextOff;
             _clipboardItem.Checked = clipOn;
+        }
+
+        // Tooltip depends on pause too, which can change without clipOn moving.
+        // BuildTrayTooltip handles the Paused case; _lastTooltip gates the shell update.
+        string tooltip = BuildTrayTooltip();
+        if (tooltip != _lastTooltip)
+        {
+            _lastTooltip = tooltip;
+            _trayIcon.Text = tooltip;
         }
 
         if (fileOn != _lastTransferFileState)
@@ -2150,6 +2184,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         _osd.Dispose();
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        _menu.Dispose();
+        _aboutForm?.Dispose();
+        _iconOn.Dispose();
+        _iconOff.Dispose();
         Application.Exit();
     }
 
@@ -2167,6 +2205,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             _pauseTimer.Dispose();
             _messageWindow.DestroyHandle();
             _osd.Dispose();
+            _trayIcon.Visible = false;
             _trayIcon.Dispose();
             _menu.Dispose();
             _aboutForm?.Dispose();
