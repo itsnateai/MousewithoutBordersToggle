@@ -5,6 +5,13 @@ on:
     tags:
       - 'v*.*.*'
 
+# Per-ref group so different tags can still publish in parallel; a second push
+# of the same tag (or a force-retag) queues behind the first run instead of
+# double-creating the GitHub Release.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

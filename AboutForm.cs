@@ -83,6 +83,18 @@ internal sealed class AboutForm : Form
         };
         Controls.Add(logLink);
 
+        var copyrightLabel = new Label
+        {
+            Text = "© 2026 itsnateai · MIT License",
+            AutoSize = false,
+            Size = new Size(280, 18),
+            Location = new Point(10, 153),
+            ForeColor = Color.FromArgb(110, 110, 110),
+            Font = new Font(Font.FontFamily, 8.25f),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        Controls.Add(copyrightLabel);
+
         var githubBtn = new Button
         {
             Text = "GitHub",

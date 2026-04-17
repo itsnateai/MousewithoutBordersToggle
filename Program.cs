@@ -61,7 +61,16 @@ internal static class Program
         }
         finally
         {
-            mutex.ReleaseMutex();
+            // ReleaseMutex throws ApplicationException if the current thread doesn't
+            // own the mutex. Normal exits own it (we acquired on construction with
+            // initiallyOwned: true and createdNew == true). But in rare edge cases
+            // — thread-identity shift during Application.Run, an abandoned mutex,
+            // STA-thread-pool hand-off — it can fire. Swallow it so:
+            //   1. The original exception from Application.Run (if any) isn't masked.
+            //   2. mutex.Dispose() still runs and the handle is released to the OS.
+            // Dispose itself is documented not to throw.
+            try { mutex.ReleaseMutex(); }
+            catch (ApplicationException) { /* not owned by this thread — we're exiting anyway */ }
             mutex.Dispose();
         }
     }

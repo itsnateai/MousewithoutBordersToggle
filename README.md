@@ -80,10 +80,11 @@ MiddleClickMwbSettings=true
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `Hotkey` | `^!c` | Hotkey string (`#` Win, `^` Ctrl, `!` Alt, `+` Shift) |
+| `Hotkey` | `^!c` (Ctrl+Alt+C) | Hotkey string (`#` Win, `^` Ctrl, `!` Alt, `+` Shift) |
 | `ConfirmToggle` | `false` | Prompt before each toggle |
 | `SoundFeedback` | `false` | Beep on toggle (high tone ON, low tone OFF) |
 | `MiddleClickMwbSettings` | `true` | Middle-click tray icon opens MWB settings |
+| `SingleClickToggles` | `true` | Left-click tray icon toggles sharing. Set to `false` if you want to use the menu or hotkey only — prevents accidental toggles from stray clicks. |
 
 ## How It Works
 
@@ -108,6 +109,24 @@ It toggles the `ShareClipboard` and `TransferFile` values and swaps the file in 
 
 **Nothing happens when I press the hotkey**
 - Open the About dialog and click *Open log folder* — MWBToggle writes a small diagnostic log at `%LOCALAPPDATA%\MWBToggle\mwbtoggle.log` whenever something goes wrong.
+
+## FAQ
+
+**How do I uninstall?**
+- WinGet: `winget uninstall itsnateai.MWBToggle`.
+- Direct install: exit from the tray menu, then delete the exe and the `%LOCALAPPDATA%\MWBToggle\` folder (which holds the log, INI, and pause sidecar). Also remove the `MWBToggle` shortcut from `shell:startup` if you'd enabled run-at-startup.
+
+**How do I stop it running at startup without uninstalling?**
+- Tray menu → uncheck *Run at startup*. This deletes the shortcut from `shell:startup`. Re-check it to restore.
+
+**What's the `.ok` sentinel file I see after an update?**
+- Self-update safety net. The update downloads the new exe as `MWBToggle.exe.new`, swaps it in, and keeps the prior version as `MWBToggle.exe.old`. On a successful launch of the new version, MWBToggle writes `.ok` to confirm the new build started cleanly. If that file is missing next launch, the old exe is restored — so a broken update can't leave you unable to run the app.
+
+**Does this modify PowerToys itself?**
+- No. MWBToggle only reads/writes PowerToys' Mouse Without Borders `settings.json` — the same file PowerToys already edits when you toggle those switches in its UI. PowerToys keeps running the whole time.
+
+**Why does the pause icon stay up after I exit?**
+- It doesn't — if the tray still shows a pause icon after a proper *Exit* from the menu, the tray cache is stale. Hover the notification area to force Explorer to refresh.
 
 ## Project Structure
 
