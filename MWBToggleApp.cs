@@ -68,10 +68,18 @@ internal sealed class MWBToggleApp : ApplicationContext
     private bool _toggleInProgress;
     // Window during which FileSystemWatcher events on settings.json are ours and should be ignored.
     private DateTime _suppressWatcherUntilUtc;
-    // Absolute UTC time when a pause should auto-resume. null = no active timed pause.
+    // Absolute UTC time when a pause should auto-resume. null = no active timed pause
+    // (either no pause at all, or an unlimited "until resumed" pause).
     // Using absolute time (instead of relying on WinForms Timer.Interval) makes pause
     // survive OS sleep: PowerModeChanged.Resume recomputes the remaining interval.
     private DateTime? _pauseResumeAtUtc;
+
+    // Snapshot of ShareClipboard / TransferFile captured at the moment pause began.
+    // Resume restores these exact values instead of forcing both ON — so a user who
+    // was running {clipboard:on, file:off} gets that state back, not {on, on}.
+    // Non-null snapshot ⇔ pause is active (timed or unlimited).
+    private bool? _pauseSnapshotClipboard;
+    private bool? _pauseSnapshotFile;
 
     // ── UI ──────────────────────────────────────────────────────────────────
     private readonly NotifyIcon _trayIcon;
@@ -387,6 +395,23 @@ internal sealed class MWBToggleApp : ApplicationContext
 
             bool currentlyOn = match.Groups[1].Value == "true";
 
+            // If a pause is active, the primary toggle means "resume". Routing through
+            // ResumeSharing preserves the pre-pause snapshot — the whole point of v2.5.5.
+            // Without this branch, a user with {clip:on, file:off} who paused and then
+            // hit the hotkey would end up at {on, on}, the exact bug this release fixes.
+            if (IsPauseActive)
+            {
+                if (_confirmToggle && confirm)
+                {
+                    if (MessageBox.Show("Resume sharing now?", "MWBToggle",
+                            MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                        != DialogResult.Yes)
+                        return;
+                }
+                ResumeSharing();
+                return;
+            }
+
             if (_confirmToggle && confirm)
             {
                 string prompt = "Turn clipboard/file sharing " + (currentlyOn ? "OFF" : "ON") + "?";
@@ -394,16 +419,6 @@ internal sealed class MWBToggleApp : ApplicationContext
                     != DialogResult.Yes)
                     return;
             }
-
-            // A manual toggle supersedes any pending pause — but only clear once we've
-            // committed to toggling (past the confirm dialog), so cancelling doesn't
-            // silently destroy the user's active pause.
-            _pauseTimer.Stop();
-            _pauseResumeAtUtc = null;
-            PersistPauseDeadline();
-            _pause5.Checked = false;
-            _pause30.Checked = false;
-            _pauseUnlimited.Checked = false;
 
             string newVal = currentlyOn ? "false" : "true";
             json = ShareClipboardReplaceRegex.Replace(json, "$1" + newVal);
@@ -692,8 +707,6 @@ internal sealed class MWBToggleApp : ApplicationContext
             _trayIcon.Icon = clipOn ? _iconOn : _iconOff;
             _trayIcon.Text = clipOn ? TrayTextOn : TrayTextOff;
             _clipboardItem.Checked = clipOn;
-            // File Transfer depends on clipboard — grey it out when clipboard is OFF
-            _transferFileItem.Enabled = clipOn;
         }
 
         if (fileOn != _lastTransferFileState)
@@ -701,11 +714,23 @@ internal sealed class MWBToggleApp : ApplicationContext
             _lastTransferFileState = fileOn;
             _transferFileItem.Checked = fileOn;
         }
+
+        // File Transfer depends on clipboard — grey it out when clipboard is OFF,
+        // EXCEPT during an active pause, where the CHANGELOG promises clicking
+        // either toggle cancels the pause. Re-evaluated on every SyncTray so that
+        // pause-enter and pause-exit both refresh the gate (pause-exit may leave
+        // clipOn unchanged, which would otherwise skip the change-detection above).
+        _transferFileItem.Enabled = clipOn || IsPauseActive;
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
     // ║  Pause / Resume                                                      ║
     // ╚══════════════════════════════════════════════════════════════════════╝
+
+    // True when a pause is active (timed or unlimited). A non-null snapshot is the
+    // single source of truth; _pauseResumeAtUtc is additionally non-null for timed
+    // pauses but null for unlimited.
+    private bool IsPauseActive => _pauseSnapshotClipboard is not null;
 
     // Menu-click dispatcher. If the item is already checked (pause is active in that mode),
     // resume instead of re-firing the pause — matches the checkmark-as-toggle UI contract.
@@ -717,6 +742,13 @@ internal sealed class MWBToggleApp : ApplicationContext
             PauseSharing(minutes);
     }
 
+    /// <summary>
+    /// Enter (or re-arm) pause. On first entry this snapshots the current
+    /// ShareClipboard + TransferFile states so Resume can restore the user's
+    /// actual configuration instead of forcing both ON. Re-entering pause while
+    /// already paused (e.g. switching 5min → 30min) preserves the existing
+    /// snapshot and just updates the deadline.
+    /// </summary>
     private void PauseSharing(int minutes)
     {
         if (!File.Exists(_settingsPath)) return;
@@ -726,17 +758,46 @@ internal sealed class MWBToggleApp : ApplicationContext
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
         catch (Exception ex) { Logger.Warn($"PauseSharing read: {ex.Message}"); return; }
 
-        // Only toggle if currently ON
-        var m = ShareClipboardRegex.Match(json);
-        if (m.Success && m.Groups[1].Value == "true")
-            DoToggle(confirm: false);
+        var clipMatch = ShareClipboardRegex.Match(json);
+        var fileMatch = TransferFileRegex.Match(json);
+        if (!clipMatch.Success || !fileMatch.Success)
+        {
+            ShowOSD("ShareClipboard/TransferFile not found in settings.json — run MWB at least once.", 5000);
+            return;
+        }
 
-        // Update checkmarks
+        bool currentClip = clipMatch.Groups[1].Value == "true";
+        bool currentFile = fileMatch.Groups[1].Value == "true";
+
+        // Snapshot only on first entry. Re-arming an active pause must preserve the
+        // ORIGINAL pre-pause state, not the current paused {off,off} state — otherwise
+        // clicking 5min then 30min would snapshot {off,off} and resume would leave the
+        // user with sharing disabled.
+        bool freshSnapshot = !IsPauseActive;
+        if (freshSnapshot)
+        {
+            _pauseSnapshotClipboard = currentClip;
+            _pauseSnapshotFile = currentFile;
+        }
+
+        // Remember prior timer/menu state so we can roll back cleanly on settings-write
+        // failure without leaving the app showing "paused" when pause didn't take.
+        DateTime? priorResumeAt = _pauseResumeAtUtc;
+        bool priorCheck5 = _pause5.Checked;
+        bool priorCheck30 = _pause30.Checked;
+        bool priorCheckUnlimited = _pauseUnlimited.Checked;
+
+        // Set menu + timer + sidecar BEFORE mutating settings.json. The invariant is:
+        // "snapshot persisted ⇒ ResumeSharing will restore the exact pre-pause state."
+        // If a crash or kill interrupts us between the pause.dat write and the
+        // settings.json write, the next startup reads pause.dat with snapshot matching
+        // current on-disk settings — ResumeSharing becomes a no-op. That's strictly
+        // better than the reverse order, where a crash leaves sharing stuck OFF with
+        // no sidecar and no way to auto-resume.
         _pause5.Checked = minutes == 5;
         _pause30.Checked = minutes == 30;
         _pauseUnlimited.Checked = minutes == 0;
 
-        // One-shot timer to resume (skip for unlimited)
         _pauseTimer.Stop();
         if (minutes > 0)
         {
@@ -750,34 +811,171 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
         PersistPauseDeadline();
 
+        // Force both fields to false. Skip the write if they're already off to avoid a
+        // spurious FileSystemWatcher event and an unnecessary backup rotation.
+        if (currentClip || currentFile)
+        {
+            string paused = ShareClipboardReplaceRegex.Replace(json, "$1false");
+            paused = TransferFileReplaceRegex.Replace(paused, "$1false");
+
+            var verifyClip = ShareClipboardRegex.Match(paused);
+            var verifyFile = TransferFileRegex.Match(paused);
+            if (!verifyClip.Success || verifyClip.Groups[1].Value != "false"
+             || !verifyFile.Success || verifyFile.Groups[1].Value != "false")
+            {
+                Logger.Warn("PauseSharing verify failed — regex replace did not update both fields.");
+                RollbackPauseState(freshSnapshot, priorResumeAt, priorCheck5, priorCheck30, priorCheckUnlimited);
+                ShowOSD("Failed to update settings — JSON structure may have changed.", 5000);
+                return;
+            }
+
+            if (!WriteSettingsAtomic(paused))
+            {
+                RollbackPauseState(freshSnapshot, priorResumeAt, priorCheck5, priorCheck30, priorCheckUnlimited);
+                ShowOSD("Could not pause — settings.json is locked. Try again.", 5000);
+                return;
+            }
+        }
+
+        WaitWithMessagePump(300);
+        SyncTray();
+
         string msg = minutes > 0 ? $"Paused · {minutes} min" : "Paused";
         ShowOSDState(msg, on: false);
     }
 
-    private void ResumeSharing()
+    /// <summary>
+    /// Restore pause state to what it was before a failed PauseSharing attempt so the
+    /// user doesn't see a "paused" UI while sharing is still active. If the pause was
+    /// pre-existing (not a fresh entry), the snapshot stays — we only rolled back the
+    /// timer/menu updates that would have been wrong on failure.
+    /// </summary>
+    private void RollbackPauseState(bool clearSnapshot, DateTime? priorResumeAt,
+                                     bool priorCheck5, bool priorCheck30, bool priorCheckUnlimited)
     {
         _pauseTimer.Stop();
-        _pauseResumeAtUtc = null;
+        _pauseResumeAtUtc = priorResumeAt;
+        if (priorResumeAt is DateTime due)
+        {
+            _pauseTimer.Interval = Math.Max(1000, (int)(due - DateTime.UtcNow).TotalMilliseconds);
+            _pauseTimer.Start();
+        }
+        _pause5.Checked = priorCheck5;
+        _pause30.Checked = priorCheck30;
+        _pauseUnlimited.Checked = priorCheckUnlimited;
+
+        if (clearSnapshot)
+        {
+            _pauseSnapshotClipboard = null;
+            _pauseSnapshotFile = null;
+        }
         PersistPauseDeadline();
+    }
+
+    /// <summary>
+    /// Exit pause by restoring the pre-pause ShareClipboard + TransferFile states.
+    /// Also called by the timer tick and by the startup path when the pause window
+    /// has already elapsed.
+    /// </summary>
+    private void ResumeSharing()
+    {
+        // Capture snapshot before we clear pause state — the write below needs it.
+        bool restoreClip = _pauseSnapshotClipboard ?? true;
+        bool restoreFile = _pauseSnapshotFile ?? true;
+
+        _pauseTimer.Stop();
+        _pauseResumeAtUtc = null;
+        _pauseSnapshotClipboard = null;
+        _pauseSnapshotFile = null;
+        PersistPauseDeadline();
+
+        _pause5.Checked = false;
+        _pause30.Checked = false;
+        _pauseUnlimited.Checked = false;
 
         if (!File.Exists(_settingsPath)) return;
         if (new FileInfo(_settingsPath).Length > 1_000_000) return;
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
-        catch (Exception ex) { Logger.Warn($"ResumeSharing read: {ex.Message}"); return; }
+        catch (Exception ex)
+        {
+            Logger.Warn($"ResumeSharing read: {ex.Message}");
+            ShowOSD("Resume aborted — could not read settings.json.", 5000);
+            return;
+        }
 
-        // Clear checkmarks
+        var clipMatch = ShareClipboardRegex.Match(json);
+        var fileMatch = TransferFileRegex.Match(json);
+        if (!clipMatch.Success || !fileMatch.Success) return;
+
+        bool currentClip = clipMatch.Groups[1].Value == "true";
+        bool currentFile = fileMatch.Groups[1].Value == "true";
+
+        // External-mutation guard: while we were paused, settings.json should be
+        // {false, false} (either forced by us or left that way by a write-failure
+        // rollback that self-healed). Anything else means PowerToys' own UI wrote
+        // to it, or the user edited it, during the pause window. Honoring the
+        // snapshot in that case would silently revert the user's intentional edit.
+        // Skip the restore and tell the user why.
+        if (currentClip || currentFile)
+        {
+            Logger.Info($"ResumeSharing: external change detected (clip={currentClip} file={currentFile}) — honoring it, snapshot discarded.");
+            WaitWithMessagePump(300);
+            SyncTray();
+            ShowOSDState("Pause ended · kept your change", on: currentClip);
+            return;
+        }
+
+        // Only write if the snapshot differs from current — avoids a no-op FSW event.
+        if (currentClip != restoreClip || currentFile != restoreFile)
+        {
+            string restored = ShareClipboardReplaceRegex.Replace(json, "$1" + (restoreClip ? "true" : "false"));
+            restored = TransferFileReplaceRegex.Replace(restored, "$1" + (restoreFile ? "true" : "false"));
+
+            var verifyClip = ShareClipboardRegex.Match(restored);
+            var verifyFile = TransferFileRegex.Match(restored);
+            if (!verifyClip.Success || verifyClip.Groups[1].Value != (restoreClip ? "true" : "false")
+             || !verifyFile.Success || verifyFile.Groups[1].Value != (restoreFile ? "true" : "false"))
+            {
+                Logger.Warn("ResumeSharing verify failed — regex replace did not update both fields.");
+                ShowOSD("Resume aborted — settings.json structure may have changed.", 5000);
+                return;
+            }
+
+            if (!WriteSettingsAtomic(restored))
+            {
+                Logger.Warn("ResumeSharing: could not write settings.json — file locked.");
+                ShowOSD("Resume failed — settings.json is locked. Toggle from the tray to retry.", 5000);
+                return;
+            }
+        }
+
+        WaitWithMessagePump(300);
+        SyncTray();
+
+        // OSD dot reflects the restored clipboard state, not a hardcoded green. A user
+        // who paused while both were off sees the red dot, matching truth.
+        ShowOSDState("Resumed", on: restoreClip);
+    }
+
+    /// <summary>
+    /// Cancel pause WITHOUT restoring the snapshot. Used when a manual action
+    /// (primary toggle, or an independent clipboard/file toggle) supersedes an
+    /// active pause — the user is taking direct control, so the pre-pause snapshot
+    /// is no longer meaningful. The caller is responsible for the actual settings
+    /// mutation that follows.
+    /// </summary>
+    private void CancelPause()
+    {
+        _pauseTimer.Stop();
+        _pauseResumeAtUtc = null;
+        _pauseSnapshotClipboard = null;
+        _pauseSnapshotFile = null;
+        PersistPauseDeadline();
         _pause5.Checked = false;
         _pause30.Checked = false;
         _pauseUnlimited.Checked = false;
-
-        // Only toggle if currently OFF
-        var m = ShareClipboardRegex.Match(json);
-        if (m.Success && m.Groups[1].Value == "false")
-            DoToggle(confirm: false);
-
-        ShowOSDState("Resumed", on: true);
     }
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
@@ -810,21 +1008,54 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
     }
 
-    // Persist the active pause deadline (or its absence) to a sidecar file so a
-    // timed pause survives app exit or reboot. Without this, exiting mid-pause
-    // would leave MWB sharing disabled indefinitely.
+    // Persist the active pause deadline + pre-pause snapshot to a sidecar file so a
+    // pause survives app exit or reboot. Without this, exiting mid-pause would leave
+    // MWB sharing disabled indefinitely AND we'd lose the pre-pause state needed to
+    // restore the user's intentional {clipboard, file} config on resume.
+    //
+    // Schema (v2.5.5+, line-oriented key=value):
+    //   deadline=2026-04-17T22:30:00.0000000Z    (omitted for unlimited pause)
+    //   clipboard=true|false                      (pre-pause ShareClipboard state)
+    //   file=true|false                           (pre-pause TransferFile state)
+    //
+    // Back-compat: a v2.5.4 sidecar is a single ISO 8601 line with no key=value pairs.
+    // The restore path parses it as "deadline only, snapshot unknown" and defaults the
+    // snapshot to {true, true} — the one-time migration cost that matches v2.5.4's
+    // force-ON resume behavior exactly.
     private string PauseSidecarPath => Path.Combine(_configDir, "pause.dat");
 
     private void PersistPauseDeadline()
     {
         try
         {
+            // No snapshot ⇒ no active pause ⇒ delete the sidecar (if any).
+            if (_pauseSnapshotClipboard is not bool snapClip
+             || _pauseSnapshotFile is not bool snapFile)
+            {
+                if (File.Exists(PauseSidecarPath)) File.Delete(PauseSidecarPath);
+                return;
+            }
+
+            var sb = new StringBuilder(96);
             if (_pauseResumeAtUtc is DateTime due)
-                File.WriteAllText(PauseSidecarPath, due.ToString("O", CultureInfo.InvariantCulture));
-            else if (File.Exists(PauseSidecarPath))
-                File.Delete(PauseSidecarPath);
+                sb.Append("deadline=").Append(due.ToString("O", CultureInfo.InvariantCulture)).Append('\n');
+            sb.Append("clipboard=").Append(snapClip ? "true" : "false").Append('\n');
+            sb.Append("file=").Append(snapFile ? "true" : "false").Append('\n');
+
+            // Atomic write: a power-cut during File.WriteAllText would otherwise leave
+            // pause.dat half-written, which the restore path sees as "unparseable" and
+            // deletes — losing an in-flight pause. Write to .tmp first then Move with
+            // overwrite, which is atomic on NTFS.
+            string tmpPath = PauseSidecarPath + ".tmp";
+            File.WriteAllText(tmpPath, sb.ToString());
+            File.Move(tmpPath, PauseSidecarPath, overwrite: true);
         }
-        catch (Exception ex) { Logger.Warn($"PersistPauseDeadline: {ex.Message}"); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // Narrow catch: we only expect file-system failures here. A broader catch
+            // would hide null-refs or argument errors that should surface as bugs.
+            Logger.Warn($"PersistPauseDeadline: {ex.Message}");
+        }
     }
 
     private void RestorePauseDeadlineOnStartup()
@@ -833,39 +1064,113 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             if (!File.Exists(PauseSidecarPath)) return;
 
-            string raw = File.ReadAllText(PauseSidecarPath).Trim();
-            // "O" format preserves kind via the trailing Z — RoundtripKind alone is correct.
-            // Combining with AssumeUniversal throws ArgumentException (mutually exclusive).
-            if (!DateTime.TryParseExact(raw, "O", CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind, out var due))
+            // File.ReadAllText honors a UTF-8 BOM on the content side, but the raw
+            // string we pass to Split+Substring still carries the BOM as the first
+            // character — which would turn "deadline" into "\uFEFFdeadline" and
+            // silently miss every switch case. Strip it once up front.
+            string raw = File.ReadAllText(PauseSidecarPath).TrimStart('\uFEFF');
+            DateTime? due = null;
+            bool? snapClip = null;
+            bool? snapFile = null;
+            bool sawDeadlineKey = false;
+            bool deadlineParsed = false;
+
+            // Parse line-oriented key=value (v2.5.5+).
+            foreach (var rawLine in raw.Split('\n'))
             {
-                // Garbage sidecar — clean up and treat as no active pause.
+                string line = rawLine.Trim();
+                if (line.Length == 0) continue;
+
+                int eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+                string key = line.Substring(0, eq);
+                string val = line.Substring(eq + 1);
+
+                switch (key)
+                {
+                    case "deadline":
+                        sawDeadlineKey = true;
+                        if (DateTime.TryParseExact(val, "O", CultureInfo.InvariantCulture,
+                            DateTimeStyles.RoundtripKind, out var parsed))
+                        {
+                            due = parsed;
+                            deadlineParsed = true;
+                        }
+                        break;
+                    case "clipboard": snapClip = val == "true"; break;
+                    case "file":      snapFile = val == "true"; break;
+                }
+            }
+
+            // Corrupt-deadline guard: the sidecar explicitly had a `deadline=` line
+            // but we failed to parse it. Falling through would promote a timed pause
+            // into an unlimited one (no `due` value), stranding the user on a pause
+            // they can only escape by clicking Resume. Delete and start clean.
+            if (sawDeadlineKey && !deadlineParsed)
+            {
+                string preview = raw.Length <= 80 ? raw : raw.Substring(0, 80);
+                Logger.Warn($"RestorePauseDeadlineOnStartup: corrupt deadline line, discarding sidecar. Preview: {preview.Replace('\n', '|')}");
                 File.Delete(PauseSidecarPath);
                 return;
             }
 
-            if (DateTime.UtcNow >= due)
+            // Back-compat with v2.5.4 single-line ISO format: if we got nothing from
+            // the key=value parse, try the whole (trimmed) file as an ISO deadline.
+            if (due is null && snapClip is null && snapFile is null)
             {
-                // Window already elapsed while we were gone — resume now.
-                // ResumeSharing re-toggles clipboard ON and deletes the sidecar.
-                Logger.Info($"Pause window elapsed during downtime (was due {due:O}) — resuming.");
-                ResumeSharing();
-                return;
+                if (DateTime.TryParseExact(raw.Trim(), "O", CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out var legacyDue))
+                {
+                    due = legacyDue;
+                    Logger.Info("Migrating v2.5.4 pause.dat — snapshot unknown, will resume to {on,on}.");
+                }
+                else
+                {
+                    // Truly garbage — log what we saw for diagnostics before deleting,
+                    // so a future bug report is actionable.
+                    string preview = raw.Length <= 80 ? raw : raw.Substring(0, 80);
+                    Logger.Warn($"RestorePauseDeadlineOnStartup: unparseable sidecar, discarding. Preview: {preview.Replace('\n', '|')}");
+                    File.Delete(PauseSidecarPath);
+                    return;
+                }
             }
 
-            // Window still open — restore state and continue timing the remainder.
-            _pauseResumeAtUtc = due;
-            _pauseTimer.Interval = Math.Max(1000, (int)(due - DateTime.UtcNow).TotalMilliseconds);
-            _pauseTimer.Start();
+            // Missing snapshot (legacy or partial file) defaults to {true, true} — the
+            // pre-v2.5.5 force-ON behavior, so the upgrade never leaves users stuck off.
+            _pauseSnapshotClipboard = snapClip ?? true;
+            _pauseSnapshotFile = snapFile ?? true;
 
-            // Closest-match checkmark. We can't recover the original 5-vs-30 choice from
-            // the deadline alone, so pick the preset whose original window would still
-            // be running right now.
-            int remaining = (int)Math.Ceiling((due - DateTime.UtcNow).TotalMinutes);
-            _pause5.Checked = remaining <= 5;
-            _pause30.Checked = remaining > 5;
+            if (due is DateTime deadline)
+            {
+                if (DateTime.UtcNow >= deadline)
+                {
+                    // Window already elapsed while we were gone — resume now. ResumeSharing
+                    // reads the snapshot we just populated and deletes the sidecar.
+                    Logger.Info($"Pause window elapsed during downtime (was due {deadline:O}) — resuming.");
+                    ResumeSharing();
+                    return;
+                }
 
-            ShowOSDState($"Pause restored · {remaining} min left", on: false);
+                // Window still open — restore timer and continue the remainder.
+                _pauseResumeAtUtc = deadline;
+                _pauseTimer.Interval = Math.Max(1000, (int)(deadline - DateTime.UtcNow).TotalMilliseconds);
+                _pauseTimer.Start();
+
+                // Closest-match checkmark. We can't recover the original 5-vs-30 choice
+                // from the deadline alone, so pick the preset whose original window would
+                // still be running right now.
+                int remaining = (int)Math.Ceiling((deadline - DateTime.UtcNow).TotalMinutes);
+                _pause5.Checked = remaining <= 5;
+                _pause30.Checked = remaining > 5;
+
+                ShowOSDState($"Pause restored · {remaining} min left", on: false);
+            }
+            else
+            {
+                // No deadline ⇒ unlimited pause. Just restore the checkmark; no timer.
+                _pauseUnlimited.Checked = true;
+                ShowOSDState("Pause restored", on: false);
+            }
         }
         catch (Exception ex)
         {
@@ -1351,6 +1656,14 @@ internal sealed class MWBToggleApp : ApplicationContext
             return;
         }
 
+        // A manual independent toggle supersedes any active pause — the user is
+        // taking direct control of individual fields, so the pre-pause snapshot
+        // is no longer meaningful. Discard it without restoring, but remember
+        // we did so so the OSD can tell the user — the old behavior was silent,
+        // which let a misclick permanently overwrite an asymmetric pre-pause config.
+        bool cancelledPause = IsPauseActive;
+        if (cancelledPause) CancelPause();
+
         bool clipboardOn = clipMatch.Groups[1].Value == "true";
         string newClip = clipboardOn ? "false" : "true";
 
@@ -1378,7 +1691,9 @@ internal sealed class MWBToggleApp : ApplicationContext
         WaitWithMessagePump(300);
         SyncTray();
         bool nowOn = !clipboardOn;
-        ShowOSDState(nowOn ? "Clipboard · ON" : "Clipboard · OFF", nowOn);
+        string stateMsg = nowOn ? "Clipboard · ON" : "Clipboard · OFF";
+        if (cancelledPause) stateMsg += " · pause cancelled";
+        ShowOSDState(stateMsg, nowOn);
     }
 
     private void ToggleTransferFile()
@@ -1405,6 +1720,11 @@ internal sealed class MWBToggleApp : ApplicationContext
             return;
         }
 
+        // A manual independent toggle supersedes any active pause — see the parallel
+        // block in ToggleShareClipboard for the rationale.
+        bool cancelledPause = IsPauseActive;
+        if (cancelledPause) CancelPause();
+
         // Flip only TransferFile
         string newVal = transferOn ? "false" : "true";
         json = TransferFileReplaceRegex.Replace(json, "$1" + newVal);
@@ -1427,7 +1747,9 @@ internal sealed class MWBToggleApp : ApplicationContext
         SyncTray();
         // transferOn reflects the PREVIOUS state (pre-toggle), so "nowOn" inverts it.
         bool nowOn = !transferOn;
-        ShowOSDState(nowOn ? "File Transfer · ON" : "File Transfer · OFF", nowOn);
+        string stateMsg = nowOn ? "File Transfer · ON" : "File Transfer · OFF";
+        if (cancelledPause) stateMsg += " · pause cancelled";
+        ShowOSDState(stateMsg, nowOn);
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗

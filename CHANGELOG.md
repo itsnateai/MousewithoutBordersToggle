@@ -2,6 +2,24 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.5] — 2026-04-17
+
+### Pause
+- **Resume now restores what was on before you paused.** If you were running with Clipboard on and File Transfer off, resuming leaves you in that exact state — not both-on as a surprise. Applies to the 5-minute, 30-minute, and "Until resumed" modes, and survives app exit and reboot.
+- **The PowerToys submenu's Clipboard Sharing and File Transfer toggles cleanly cancel an active pause.** Previously, toggling either one mid-pause left the pause timer running in the background with stale menu state. Now the pause ends the moment you take manual control — and the on-screen confirmation says so explicitly (e.g. `Clipboard · ON · pause cancelled`), so a misclick doesn't silently discard your pre-pause config.
+- **"Until resumed" pauses survive restart.** An unlimited pause no longer silently forgets itself when you exit the app.
+- **The primary hotkey asks the right question during a pause.** If you hit the toggle hotkey or tray-click while paused (with "Prompt before toggle" enabled), the confirmation now says "Resume sharing now?" and restores your pre-pause state — instead of the old generic prompt that turned both back on.
+- **External changes during a pause are honored.** If you open PowerToys and change a sharing toggle yourself while MWBToggle is paused, the pause silently steps aside and keeps your change instead of overwriting it on auto-resume. You'll see `Pause ended · kept your change`.
+
+### Reliability
+- **Pause survives a crash or task-kill between writes.** The sidecar that remembers your pre-pause state is now written before the settings file, and written atomically, so a power-cut mid-pause never leaves you stuck with sharing off and no way to auto-resume.
+- **Failed pause attempts no longer leave the UI claiming to be paused.** If Windows has the settings file locked when you hit Pause, the menu state rolls back and an OSD tells you to try again — no more ghost pause timers.
+- **Resume shows an error when the settings file is locked** instead of failing silently.
+- **Corrupt or truncated pause sidecars are now logged** before being discarded, making the (rare) recovery path easier to diagnose.
+
+### Migration
+- Upgrading mid-pause from v2.5.4 is safe. An in-flight pause from the previous version is detected on startup and continues to tick down; because it predates this release's snapshot, resume falls back to turning both back on — matching v2.5.4's behavior exactly. Any pause started after upgrading uses the new snapshot-and-restore behavior.
+
 ## [2.5.4] — 2026-04-17
 
 ### Tray menu polish
