@@ -2,6 +2,20 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.3] — 2026-04-17
+
+### Pause
+- **A timed pause now survives app exit and reboot.** If you paused sharing for 30 minutes and then exited MWBToggle, restarted Windows, or lost power, the app no longer forgets — on next launch it either resumes immediately (if the window has already passed) or keeps counting down the remainder.
+
+### Tray menu
+- **Clipboard Sharing has its own toggle.** The tray menu now lets you flip clipboard sharing independently of file transfer, instead of both moving together.
+- **A second hotkey can be bound for File Transfer alone.** Leaves the primary hotkey free to toggle Clipboard + File together, so you can disable just the file side without losing copy/paste across screens.
+- **Picker no longer triggers other apps' hotkeys.** While capturing a new hotkey, the key combo is suppressed from the rest of Windows — pressing a shortcut to rebind it won't also fire whatever else is listening for it.
+
+### Polish
+- **OSD bubble matches MicMute and SyncTray exactly.**
+- **Fresh installs now default to `Win+Ctrl+Shift+F`** (was `Ctrl+Alt+C`). Existing `MWBToggle.ini` files keep whatever hotkey they already had.
+
 ## [2.5.2] — 2026-04-17 — new LTR
 
 ### Security

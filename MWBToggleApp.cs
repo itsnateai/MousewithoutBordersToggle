@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -277,6 +278,11 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Initial tray sync
         SyncTray();
 
+        // Re-attach any pause that was pending when we last exited (or reboot killed us).
+        // Must run after _pauseTimer + PowerModeChanged are wired and after SyncTray so
+        // the tray reflects current MWB state before any restore-triggered toggle.
+        RestorePauseDeadlineOnStartup();
+
         // Tell the self-updater we reached running state — safe to drop .old rollback
         // on the next launch. If we crashed before this, .old persists for recovery.
         UpdateDialog.WriteStartupSentinel();
@@ -353,6 +359,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             // silently destroy the user's active pause.
             _pauseTimer.Stop();
             _pauseResumeAtUtc = null;
+            PersistPauseDeadline();
             _pause5.Checked = false;
             _pause30.Checked = false;
             _pauseUnlimited.Checked = false;
@@ -690,6 +697,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             _pauseResumeAtUtc = null;
         }
+        PersistPauseDeadline();
 
         string msg = minutes > 0
             ? $"MWBToggle: Sharing paused for {minutes} minutes."
@@ -701,6 +709,7 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         _pauseTimer.Stop();
         _pauseResumeAtUtc = null;
+        PersistPauseDeadline();
 
         if (!File.Exists(_settingsPath)) return;
         if (new FileInfo(_settingsPath).Length > 1_000_000) return;
@@ -749,6 +758,67 @@ internal sealed class MWBToggleApp : ApplicationContext
         catch (InvalidOperationException)
         {
             // Menu handle destroyed during shutdown — nothing to do.
+        }
+    }
+
+    // Persist the active pause deadline (or its absence) to a sidecar file so a
+    // timed pause survives app exit or reboot. Without this, exiting mid-pause
+    // would leave MWB sharing disabled indefinitely.
+    private string PauseSidecarPath => Path.Combine(_configDir, "pause.dat");
+
+    private void PersistPauseDeadline()
+    {
+        try
+        {
+            if (_pauseResumeAtUtc is DateTime due)
+                File.WriteAllText(PauseSidecarPath, due.ToString("O", CultureInfo.InvariantCulture));
+            else if (File.Exists(PauseSidecarPath))
+                File.Delete(PauseSidecarPath);
+        }
+        catch (Exception ex) { Logger.Warn($"PersistPauseDeadline: {ex.Message}"); }
+    }
+
+    private void RestorePauseDeadlineOnStartup()
+    {
+        try
+        {
+            if (!File.Exists(PauseSidecarPath)) return;
+
+            string raw = File.ReadAllText(PauseSidecarPath).Trim();
+            if (!DateTime.TryParseExact(raw, "O", CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal, out var due))
+            {
+                // Garbage sidecar — clean up and treat as no active pause.
+                File.Delete(PauseSidecarPath);
+                return;
+            }
+
+            if (DateTime.UtcNow >= due)
+            {
+                // Window already elapsed while we were gone — resume now.
+                // ResumeSharing re-toggles clipboard ON and deletes the sidecar.
+                Logger.Info($"Pause window elapsed during downtime (was due {due:O}) — resuming.");
+                ResumeSharing();
+                return;
+            }
+
+            // Window still open — restore state and continue timing the remainder.
+            _pauseResumeAtUtc = due;
+            _pauseTimer.Interval = Math.Max(1000, (int)(due - DateTime.UtcNow).TotalMilliseconds);
+            _pauseTimer.Start();
+
+            // Closest-match checkmark. We can't recover the original 5-vs-30 choice from
+            // the deadline alone, so pick the preset whose original window would still
+            // be running right now.
+            int remaining = (int)Math.Ceiling((due - DateTime.UtcNow).TotalMinutes);
+            _pause5.Checked = remaining <= 5;
+            _pause30.Checked = remaining > 5;
+
+            ShowOSDState($"MWBToggle: Pause restored — {remaining} min remaining.", on: false);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"RestorePauseDeadlineOnStartup: {ex.Message}");
         }
     }
 
