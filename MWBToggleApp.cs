@@ -84,9 +84,15 @@ internal sealed class MWBToggleApp : ApplicationContext
     private readonly ToolStripMenuItem _clipboardItem;
     private readonly ToolStripMenuItem _transferFileItem;
     private readonly ToolStripMenuItem _singleClickItem;
-    private GlobalHotkey _globalHotkey;
+    // Both hotkeys are nullable — null means "unbound". Primary can be unbound since
+    // the app remains operable via the tray icon and menu items.
+    private GlobalHotkey? _globalHotkey;
     private GlobalHotkey? _fileTransferGlobalHotkey;
-    private ToolStripMenuItem? _fileTransferHotkeyItem;
+    // Hotkey submenu uses two rows per binding: a clickable title + a disabled
+    // greyed subtitle showing the current key combo. We hold the subtitles so
+    // RefreshHotkeyLabels can update them from anywhere the hotkey changes.
+    private ToolStripMenuItem? _primaryHotkeySubtitle;
+    private ToolStripMenuItem? _fileTransferHotkeySubtitle;
     private readonly System.Windows.Forms.Timer _pauseTimer;
     private readonly MessageWindow _messageWindow;
     private FileSystemWatcher? _fileWatcher;
@@ -137,24 +143,47 @@ internal sealed class MWBToggleApp : ApplicationContext
         _menu.Items.Add(titleItem);
         _menu.Items.Add(new ToolStripSeparator());
 
-        // Hotkey display (clickable — opens hotkey change dialog)
-        // Hotkeys collected into a submenu to keep the root narrow.
-        // Matches the PowerToys submenu's padding (narrow check column, no image column).
+        // Hotkey display — two rows per binding: clickable centered title above a
+        // disabled greyed subtitle showing the actual combo. Keeps the submenu narrow
+        // (width = max of title/subtitle) instead of title + ": " + subtitle on one line.
         var hotkeysMenu = new ToolStripMenuItem("Hotkeys");
         if (hotkeysMenu.DropDown is ToolStripDropDownMenu hd)
         {
             hd.ShowImageMargin = false;
+            // Keep the check margin visible even though no Hotkey item ever has a
+            // checkmark — this preserves the left-side padding rhythm that the
+            // rest of the context menu uses (Pause submenu, tray menu root etc.).
             hd.ShowCheckMargin = true;
         }
 
-        var hotkeyItem = new ToolStripMenuItem("Clipboard + Transfer: " + HotkeyToReadable(_hotkey));
-        hotkeyItem.Click += (_, _) => ChangeHotkey(hotkeyItem);
-        hotkeysMenu.DropDownItems.Add(hotkeyItem);
+        var primaryTitle = new ToolStripMenuItem("Clipboard + File Transfer")
+        {
+            TextAlign = ContentAlignment.MiddleCenter,
+        };
+        primaryTitle.Click += (_, _) => ChangeHotkey();
+        _primaryHotkeySubtitle = new ToolStripMenuItem
+        {
+            Enabled = false,
+            TextAlign = ContentAlignment.MiddleCenter,
+        };
+        hotkeysMenu.DropDownItems.Add(primaryTitle);
+        hotkeysMenu.DropDownItems.Add(_primaryHotkeySubtitle);
+        hotkeysMenu.DropDownItems.Add(new ToolStripSeparator());
 
-        _fileTransferHotkeyItem = new ToolStripMenuItem(
-            "File Transfer: " + (_fileTransferHotkey.Length == 0 ? "(none)" : HotkeyToReadable(_fileTransferHotkey)));
-        _fileTransferHotkeyItem.Click += (_, _) => ChangeFileTransferHotkey(_fileTransferHotkeyItem);
-        hotkeysMenu.DropDownItems.Add(_fileTransferHotkeyItem);
+        var fileTransferTitle = new ToolStripMenuItem("File Transfer")
+        {
+            TextAlign = ContentAlignment.MiddleCenter,
+        };
+        fileTransferTitle.Click += (_, _) => ChangeFileTransferHotkey();
+        _fileTransferHotkeySubtitle = new ToolStripMenuItem
+        {
+            Enabled = false,
+            TextAlign = ContentAlignment.MiddleCenter,
+        };
+        hotkeysMenu.DropDownItems.Add(fileTransferTitle);
+        hotkeysMenu.DropDownItems.Add(_fileTransferHotkeySubtitle);
+
+        RefreshHotkeyLabels();
 
         _menu.Items.Add(hotkeysMenu);
         _menu.Items.Add(new ToolStripSeparator());
@@ -219,8 +248,10 @@ internal sealed class MWBToggleApp : ApplicationContext
                 OpenMwbSettings();
         };
 
-        // ── Global hotkey (may update _hotkey on fallback) ─────────────────
-        _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD("MWBToggle: " + msg, 5000));
+        // ── Global hotkey (may update _hotkey on fallback). Empty = user unbound it
+        // and we shouldn't silently rebind to the default on next launch.
+        if (!string.IsNullOrEmpty(_hotkey))
+            _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle, msg => ShowOSD(msg, 5000));
 
         // File Transfer hotkey is optional — only register if the user configured one.
         // allowFallback:false means a failed registration leaves IsRegistered=false rather
@@ -229,7 +260,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             _fileTransferGlobalHotkey = new GlobalHotkey(
                 ref _fileTransferHotkey, ToggleTransferFile,
-                msg => ShowOSD("MWBToggle: " + msg, 5000),
+                msg => ShowOSD(msg, 5000),
                 allowFallback: false);
             if (!_fileTransferGlobalHotkey.IsRegistered)
             {
@@ -317,13 +348,13 @@ internal sealed class MWBToggleApp : ApplicationContext
 
             if (!mwbRunning)
             {
-                ShowOSD("MWBToggle: Mouse Without Borders doesn't appear to be running.", 5000);
+                ShowOSD("Mouse Without Borders doesn't appear to be running.", 5000);
                 return;
             }
 
             if (!File.Exists(_settingsPath))
             {
-                ShowOSD("MWBToggle: Settings file not found — check PowerToys MWB is configured.", 5000);
+                ShowOSD("Settings file not found — check PowerToys MWB is configured.", 5000);
                 return;
             }
 
@@ -331,7 +362,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             var toggleFileInfo = new FileInfo(_settingsPath);
             if (toggleFileInfo.Length > 1_000_000)
             {
-                ShowOSD("MWBToggle: Settings file is unexpectedly large — aborting.", 5000);
+                ShowOSD("Settings file is unexpectedly large — aborting.", 5000);
                 return;
             }
 
@@ -343,14 +374,14 @@ internal sealed class MWBToggleApp : ApplicationContext
             catch (IOException ex)
             {
                 Logger.Warn($"DoToggle read failed: {ex.Message}");
-                ShowOSD("MWBToggle: Could not read settings.json — file may be locked. Try again.", 5000);
+                ShowOSD("Could not read settings.json — file may be locked. Try again.", 5000);
                 return;
             }
 
             var match = ShareClipboardRegex.Match(json);
             if (!match.Success)
             {
-                ShowOSD("MWBToggle: ShareClipboard not found in settings.json — run MWB at least once.", 5000);
+                ShowOSD("ShareClipboard not found in settings.json — run MWB at least once.", 5000);
                 return;
             }
 
@@ -385,13 +416,13 @@ internal sealed class MWBToggleApp : ApplicationContext
              || !verifyFile.Success || verifyFile.Groups[1].Value != newVal)
             {
                 Logger.Warn("DoToggle verify failed — regex replace did not update both fields.");
-                ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
+                ShowOSD("Failed to update settings — JSON structure may have changed.", 5000);
                 return;
             }
 
             if (!WriteSettingsAtomic(json))
             {
-                ShowOSD("MWBToggle: Could not write settings.json — file locked. Try again.", 5000);
+                ShowOSD("Could not write settings.json — file locked. Try again.", 5000);
                 return;
             }
 
@@ -399,7 +430,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             SyncTray();
 
             bool nowOn = !currentlyOn;
-            ShowOSDState("MWBToggle: Clipboard & File Transfer " + (nowOn ? "ON" : "OFF"), nowOn);
+            ShowOSDState(nowOn ? "Clipboard + File · ON" : "Clipboard + File · OFF", nowOn);
 
             if (_soundFeedback)
                 Beep(currentlyOn ? 400u : 800u, 150);
@@ -719,9 +750,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
         PersistPauseDeadline();
 
-        string msg = minutes > 0
-            ? $"MWBToggle: Sharing paused for {minutes} minutes."
-            : "MWBToggle: Sharing paused until resumed.";
+        string msg = minutes > 0 ? $"Paused · {minutes} min" : "Paused";
         ShowOSDState(msg, on: false);
     }
 
@@ -748,7 +777,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (m.Success && m.Groups[1].Value == "false")
             DoToggle(confirm: false);
 
-        ShowOSDState("MWBToggle: Sharing resumed.", on: true);
+        ShowOSDState("Resumed", on: true);
     }
 
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
@@ -836,7 +865,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             _pause5.Checked = remaining <= 5;
             _pause30.Checked = remaining > 5;
 
-            ShowOSDState($"MWBToggle: Pause restored — {remaining} min remaining.", on: false);
+            ShowOSDState($"Pause restored · {remaining} min left", on: false);
         }
         catch (Exception ex)
         {
@@ -875,7 +904,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
         else
         {
-            ShowOSD("MWBToggle: Could not find PowerToys — open it from the Start menu.", 5000);
+            ShowOSD("Could not find PowerToys — open it from the Start menu.", 5000);
         }
     }
 
@@ -895,7 +924,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         if (pids.Count == 0)
         {
-            ShowOSD("MWBToggle: Mouse Without Borders is not running.", 5000);
+            ShowOSD("Mouse Without Borders is not running.", 5000);
             return;
         }
 
@@ -972,9 +1001,14 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         string currentDisplay = currentAhk.Length == 0 ? "(none)" : HotkeyToReadable(currentAhk);
 
+        // On open: previewLabel shows a placeholder and statusLabel tells the user
+        // what's currently bound. Once they press a combo, previewLabel fills with
+        // that combo and statusLabel becomes a validation message (green/red).
+        // Separating the two avoids the initial duplicate where both labels showed
+        // the same "Current: X" text.
         var previewLabel = new Label
         {
-            Text = "Preview: " + currentDisplay,
+            Text = "Preview: —",
             AutoSize = false,
             Size = new Size(340, 22),
             Location = new Point(10, 55),
@@ -985,7 +1019,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         var statusLabel = new Label
         {
-            Text = "Current: " + currentDisplay,
+            Text = currentAhk.Length == 0 ? "" : "Current: " + currentDisplay,
             AutoSize = false,
             Size = new Size(340, 20),
             Location = new Point(10, 82),
@@ -997,31 +1031,40 @@ internal sealed class MWBToggleApp : ApplicationContext
         string? previewAhk = null; // null until user presses a valid combo
         bool previewOk = false;    // validated (CanRegister + collisionCheck)
 
-        var setBtn = new Button
-        {
-            Text = "Set",
-            Size = new Size(80, 28),
-            Location = new Point(allowUnbind ? 90 : 100, 125),
-            Enabled = false,
-            AccessibleName = "Commit the previewed hotkey"
-        };
-        form.Controls.Add(setBtn);
+        // Button row: evenly spread across the form width with equal left/right margins
+        // and equal inter-button gaps. Order is Unbind | Set | Cancel, or Set | Cancel
+        // when Unbind isn't offered (primary-hotkey picker).
+        const int btnW = 80;
+        const int btnY = 125;
+        int btnCount = allowUnbind ? 3 : 2;
+        int gap = (form.ClientSize.Width - btnCount * btnW) / (btnCount + 1);
+        int btnX(int i) => gap + i * (btnW + gap);
 
         var unbindBtn = allowUnbind ? new Button
         {
             Text = "Unbind",
-            Size = new Size(80, 28),
-            Location = new Point(10, 125),
+            Size = new Size(btnW, 28),
+            Location = new Point(btnX(0), btnY),
             Enabled = currentAhk.Length > 0,
             AccessibleName = "Remove the current hotkey binding"
         } : null;
         if (unbindBtn != null) form.Controls.Add(unbindBtn);
 
+        var setBtn = new Button
+        {
+            Text = "Set",
+            Size = new Size(btnW, 28),
+            Location = new Point(btnX(allowUnbind ? 1 : 0), btnY),
+            Enabled = false,
+            AccessibleName = "Commit the previewed hotkey"
+        };
+        form.Controls.Add(setBtn);
+
         var cancelBtn = new Button
         {
             Text = "Cancel",
-            Size = new Size(80, 28),
-            Location = new Point(allowUnbind ? 180 : 190, 125),
+            Size = new Size(btnW, 28),
+            Location = new Point(btnX(allowUnbind ? 2 : 1), btnY),
             AccessibleName = "Close without changing the binding"
         };
         form.Controls.Add(cancelBtn);
@@ -1097,6 +1140,9 @@ internal sealed class MWBToggleApp : ApplicationContext
                 statusLabel.ForeColor = Color.SeaGreen;
                 setBtn.Enabled = true;
                 previewOk = true;
+                // Move focus off Unbind (which had default tab focus while Set was
+                // disabled) so Enter fires Set via AcceptButton, not the focused Unbind.
+                setBtn.Focus();
             }
         }
 
@@ -1178,18 +1224,33 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     /// <summary>
     /// Change the primary toggle hotkey. Uses the preview-then-Set picker.
+    /// Unbind is allowed — the app still works hotkey-less (tray icon / menu).
     /// </summary>
-    private void ChangeHotkey(ToolStripMenuItem hotkeyMenuItem)
+    private void ChangeHotkey()
     {
         // Primary can't collide with itself; return null = no collision.
-        var pick = PromptForHotkey("Set Hotkey (Toggle Sharing)", _hotkey, allowUnbind: false,
+        var pick = PromptForHotkey("Set Hotkey (Toggle Sharing)", _hotkey, allowUnbind: true,
             _ => null);
-        if (pick == null || pick.Unbind) return; // cancel / unbind not offered
+        if (pick == null) return;
 
-        _globalHotkey.Dispose();
+        if (pick.Unbind)
+        {
+            // Dispose the registration and clear the field. Don't construct a new
+            // GlobalHotkey with an empty string — its fallback would silently rebind
+            // to Win+Ctrl+Shift+F, which is the opposite of what unbind means.
+            _globalHotkey?.Dispose();
+            _globalHotkey = null;
+            _hotkey = "";
+            RefreshHotkeyLabels();
+            SaveConfig(new[] { ("Hotkey", "") });
+            ShowOSD("Hotkey cleared");
+            return;
+        }
+
+        _globalHotkey?.Dispose();
         _hotkey = pick.Ahk;
         _globalHotkey = new GlobalHotkey(ref _hotkey, DoToggle,
-            msg => ShowOSD("MWBToggle: " + msg, 5000));
+            msg => ShowOSD(msg, 5000));
 
         // If new primary collides with existing file-transfer binding, unbind the latter.
         bool secondaryCleared = false;
@@ -1199,23 +1260,36 @@ internal sealed class MWBToggleApp : ApplicationContext
             _fileTransferGlobalHotkey?.Dispose();
             _fileTransferGlobalHotkey = null;
             _fileTransferHotkey = "";
-            if (_fileTransferHotkeyItem != null)
-                _fileTransferHotkeyItem.Text = "File Transfer: (none)";
             secondaryCleared = true;
         }
 
-        hotkeyMenuItem.Text = "Clipboard + Transfer: " + HotkeyToReadable(_hotkey);
+        RefreshHotkeyLabels();
         var toSave = secondaryCleared
             ? new[] { ("Hotkey", _hotkey), ("FileTransferHotkey", "") }
             : new[] { ("Hotkey", _hotkey) };
         SaveConfig(toSave);
-        ShowOSD("MWBToggle: Hotkey set to " + HotkeyToReadable(_hotkey));
+        ShowOSD("Hotkey · " + HotkeyToReadable(_hotkey));
+    }
+
+    /// <summary>
+    /// Update both hotkey subtitle labels to the current field values. Called whenever
+    /// a hotkey changes (rebind, unbind, collision-induced clear) — single point of
+    /// truth so no caller has to remember which item's .Text to set.
+    /// </summary>
+    private void RefreshHotkeyLabels()
+    {
+        if (_primaryHotkeySubtitle != null)
+            _primaryHotkeySubtitle.Text = HotkeyToReadable(_hotkey);
+        if (_fileTransferHotkeySubtitle != null)
+            _fileTransferHotkeySubtitle.Text = string.IsNullOrEmpty(_fileTransferHotkey)
+                ? "(none)"
+                : HotkeyToReadable(_fileTransferHotkey);
     }
 
     /// <summary>
     /// Change the optional File Transfer scalpel hotkey. Supports Unbind.
     /// </summary>
-    private void ChangeFileTransferHotkey(ToolStripMenuItem hotkeyMenuItem)
+    private void ChangeFileTransferHotkey()
     {
         var pick = PromptForHotkey("Set File Transfer Hotkey", _fileTransferHotkey,
             allowUnbind: true,
@@ -1230,9 +1304,9 @@ internal sealed class MWBToggleApp : ApplicationContext
             _fileTransferGlobalHotkey?.Dispose();
             _fileTransferGlobalHotkey = null;
             _fileTransferHotkey = "";
-            hotkeyMenuItem.Text = "File Transfer: (none)";
+            RefreshHotkeyLabels();
             SaveConfig(new[] { ("FileTransferHotkey", "") });
-            ShowOSD("MWBToggle: File Transfer Hotkey cleared");
+            ShowOSD("File Hotkey cleared");
             return;
         }
 
@@ -1240,7 +1314,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         _fileTransferHotkey = pick.Ahk;
         _fileTransferGlobalHotkey = new GlobalHotkey(
             ref _fileTransferHotkey, ToggleTransferFile,
-            msg => ShowOSD("MWBToggle: " + msg, 5000),
+            msg => ShowOSD(msg, 5000),
             allowFallback: false);
 
         // If registration failed even after CanRegister passed (tiny race window), don't
@@ -1250,15 +1324,15 @@ internal sealed class MWBToggleApp : ApplicationContext
             _fileTransferGlobalHotkey.Dispose();
             _fileTransferGlobalHotkey = null;
             _fileTransferHotkey = "";
-            hotkeyMenuItem.Text = "File Transfer: (none)";
+            RefreshHotkeyLabels();
             SaveConfig(new[] { ("FileTransferHotkey", "") });
-            ShowOSD("MWBToggle: File Transfer hotkey could not be registered — try another combo.", 5000);
+            ShowOSD("File Transfer hotkey could not be registered — try another combo.", 5000);
             return;
         }
 
-        hotkeyMenuItem.Text = "File Transfer: " + HotkeyToReadable(_fileTransferHotkey);
+        RefreshHotkeyLabels();
         SaveConfig(new[] { ("FileTransferHotkey", _fileTransferHotkey) });
-        ShowOSD("MWBToggle: File Transfer Hotkey set to " + HotkeyToReadable(_fileTransferHotkey));
+        ShowOSD("File Hotkey · " + HotkeyToReadable(_fileTransferHotkey));
     }
 
     private void ToggleShareClipboard()
@@ -1273,7 +1347,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         var clipMatch = ShareClipboardRegex.Match(json);
         if (!clipMatch.Success)
         {
-            ShowOSD("MWBToggle: ShareClipboard not found in settings.json — run MWB at least once.", 5000);
+            ShowOSD("ShareClipboard not found in settings.json — run MWB at least once.", 5000);
             return;
         }
 
@@ -1291,20 +1365,20 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (!verifyClip.Success || verifyClip.Groups[1].Value != newClip)
         {
             Logger.Warn("ToggleShareClipboard verify failed — regex replace did not update.");
-            ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
+            ShowOSD("Failed to update settings — JSON structure may have changed.", 5000);
             return;
         }
 
         if (!WriteSettingsAtomic(json))
         {
-            ShowOSD("MWBToggle: Could not write settings.json — file locked.", 5000);
+            ShowOSD("Could not write settings.json — file locked.", 5000);
             return;
         }
 
         WaitWithMessagePump(300);
         SyncTray();
         bool nowOn = !clipboardOn;
-        ShowOSDState("MWBToggle: Clipboard Sharing " + (nowOn ? "ON" : "OFF"), nowOn);
+        ShowOSDState(nowOn ? "Clipboard · ON" : "Clipboard · OFF", nowOn);
     }
 
     private void ToggleTransferFile()
@@ -1327,7 +1401,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Can't enable file transfer without clipboard sharing
         if (!transferOn && !clipboardOn)
         {
-            ShowOSD("MWBToggle: ShareClipboard must be ON for file transfer.", 5000);
+            ShowOSD("ShareClipboard must be ON for file transfer.", 5000);
             return;
         }
 
@@ -1339,13 +1413,13 @@ internal sealed class MWBToggleApp : ApplicationContext
         if (!verifyFile.Success || verifyFile.Groups[1].Value != newVal)
         {
             Logger.Warn("ToggleTransferFile verify failed — regex replace did not update.");
-            ShowOSD("MWBToggle: Failed to update settings — JSON structure may have changed.", 5000);
+            ShowOSD("Failed to update settings — JSON structure may have changed.", 5000);
             return;
         }
 
         if (!WriteSettingsAtomic(json))
         {
-            ShowOSD("MWBToggle: Could not write settings.json — file locked.", 5000);
+            ShowOSD("Could not write settings.json — file locked.", 5000);
             return;
         }
 
@@ -1353,7 +1427,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         SyncTray();
         // transferOn reflects the PREVIOUS state (pre-toggle), so "nowOn" inverts it.
         bool nowOn = !transferOn;
-        ShowOSDState("MWBToggle: File Transfer " + (nowOn ? "ON" : "OFF"), nowOn);
+        ShowOSDState(nowOn ? "File Transfer · ON" : "File Transfer · OFF", nowOn);
     }
 
     // ╔══════════════════════════════════════════════════════════════════════╗
@@ -1366,14 +1440,14 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             File.Delete(_startupShortcut);
             _startupItem.Checked = false;
-            ShowOSD("MWBToggle: Removed from startup.");
+            ShowOSD("Startup · off");
         }
         else
         {
             string exePath = Environment.ProcessPath ?? Application.ExecutablePath;
             CreateShortcut(_startupShortcut, exePath, _exeDir);
             _startupItem.Checked = true;
-            ShowOSD("MWBToggle: Added to startup.");
+            ShowOSD("Startup · on");
         }
     }
 
@@ -1454,11 +1528,13 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         if (_aboutForm != null && !_aboutForm.IsDisposed)
         {
+            // Refresh hotkey labels in case they were rebound since the form was built.
+            _aboutForm.SetHotkeys(_hotkey, _fileTransferHotkey);
             _aboutForm.BringToFront();
             _aboutForm.Show();
             return;
         }
-        _aboutForm = new AboutForm(_hotkey);
+        _aboutForm = new AboutForm(_hotkey, _fileTransferHotkey);
         _aboutForm.Show();
     }
 
@@ -1585,7 +1661,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         catch (Exception ex)
         {
             Logger.Warn($"SaveConfig failed ({iniPath}): {ex.Message}");
-            ShowOSD("MWBToggle: Could not save settings — change will reset on restart.", 5000);
+            ShowOSD("Could not save settings — change will reset on restart.", 5000);
         }
     }
 
@@ -1740,7 +1816,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         _disposed = true;
 
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
-        _globalHotkey.Dispose();
+        _globalHotkey?.Dispose();
         _fileTransferGlobalHotkey?.Dispose();
         _fileWatcher?.Dispose();
         _debounceTimer?.Stop();
@@ -1761,7 +1837,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             _disposed = true;
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
-            _globalHotkey.Dispose();
+            _globalHotkey?.Dispose();
             _fileTransferGlobalHotkey?.Dispose();
             _fileWatcher?.Dispose();
             _debounceTimer?.Stop();

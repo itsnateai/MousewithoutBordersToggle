@@ -10,7 +10,10 @@ namespace MWBToggle;
 /// </summary>
 internal sealed class AboutForm : Form
 {
-    public AboutForm(string hotkey)
+    private readonly Label _primaryHotkeyLabel;
+    private readonly Label _fileTransferHotkeyLabel;
+
+    public AboutForm(string primaryHotkey, string fileTransferHotkey)
     {
         Text = $"MWBToggle v{MWBToggleApp.Version} — About";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -18,7 +21,7 @@ internal sealed class AboutForm : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
-        ClientSize = new Size(300, 200);
+        ClientSize = new Size(300, 225);
 
         var titleLabel = new Label
         {
@@ -41,22 +44,32 @@ internal sealed class AboutForm : Form
         };
         Controls.Add(descLabel);
 
-        var hotkeyLabel = new Label
+        _primaryHotkeyLabel = new Label
         {
-            Text = "Hotkey: " + MWBToggleApp.HotkeyToReadable(hotkey),
             AutoSize = false,
             Size = new Size(280, 20),
             Location = new Point(10, 85),
             TextAlign = ContentAlignment.MiddleCenter
         };
-        Controls.Add(hotkeyLabel);
+        Controls.Add(_primaryHotkeyLabel);
+
+        _fileTransferHotkeyLabel = new Label
+        {
+            AutoSize = false,
+            Size = new Size(280, 20),
+            Location = new Point(10, 107),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        Controls.Add(_fileTransferHotkeyLabel);
+
+        SetHotkeys(primaryHotkey, fileTransferHotkey);
 
         var logLink = new LinkLabel
         {
             Text = "Open log folder",
             AutoSize = false,
             Size = new Size(280, 18),
-            Location = new Point(10, 108),
+            Location = new Point(10, 132),
             TextAlign = ContentAlignment.MiddleCenter
         };
         logLink.LinkClicked += (_, _) =>
@@ -74,7 +87,7 @@ internal sealed class AboutForm : Form
         {
             Text = "GitHub",
             Size = new Size(80, 30),
-            Location = new Point(25, 150),
+            Location = new Point(25, 175),
             AccessibleName = "Open MWBToggle GitHub page"
         };
         githubBtn.Click += (_, _) =>
@@ -88,7 +101,7 @@ internal sealed class AboutForm : Form
         {
             Text = "Update",
             Size = new Size(70, 30),
-            Location = new Point(115, 150),
+            Location = new Point(115, 175),
             AccessibleName = "Check for updates"
         };
         updateBtn.Click += (_, _) =>
@@ -102,7 +115,7 @@ internal sealed class AboutForm : Form
         {
             Text = "Close",
             Size = new Size(80, 30),
-            Location = new Point(195, 150),
+            Location = new Point(195, 175),
             AccessibleName = "Close About dialog"
         };
         closeBtn.Click += (_, _) => Hide();
@@ -111,6 +124,20 @@ internal sealed class AboutForm : Form
         // Enter activates Close, Esc also closes — mirrors a standard About dialog.
         AcceptButton = closeBtn;
         CancelButton = closeBtn;
+    }
+
+    /// <summary>
+    /// Update the hotkey labels to reflect the caller's current hotkey bindings.
+    /// Called on every ShowAbout so a rebind via the picker doesn't leave a stale
+    /// label in the cached form instance.
+    /// </summary>
+    public void SetHotkeys(string primaryHotkey, string fileTransferHotkey)
+    {
+        _primaryHotkeyLabel.Text = "Clipboard + File Transfer: " + MWBToggleApp.HotkeyToReadable(primaryHotkey);
+        _fileTransferHotkeyLabel.Text = "File Transfer: " + (
+            string.IsNullOrEmpty(fileTransferHotkey)
+                ? "(none)"
+                : MWBToggleApp.HotkeyToReadable(fileTransferHotkey));
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
