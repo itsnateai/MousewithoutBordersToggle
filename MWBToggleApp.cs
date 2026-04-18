@@ -300,10 +300,15 @@ internal sealed class MWBToggleApp : ApplicationContext
         }
 
         // ── Message window for TaskbarCreated (Explorer restart recovery) ──
+        // Re-capture a fresh baseline before the re-add so the promoter can
+        // recover visibility if the subkey was externally cleaned up while
+        // we were running (e.g. Settings UI "Remove" on the entry).
         _messageWindow = new MessageWindow(RegisterWindowMessage("TaskbarCreated"), () =>
         {
+            var recoveryBaseline = TrayIconPromoter.CaptureBaseline();
             _trayIcon.Visible = true;
             SyncTray();
+            StartTrayIconPromotion(recoveryBaseline);
         });
 
         // ── File watcher — replaces 5s polling timer ──────────────────────

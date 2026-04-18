@@ -2,6 +2,11 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.10] — 2026-04-18
+
+### Explorer-restart recovery
+- **Tray icon stays visible even if Explorer crashes and restarts while MWBToggle is running.** Previously the `TaskbarCreated` handler re-added the icon but didn't re-run the Win11 auto-promote logic — so if your per-icon registry entry had been cleared in the meantime (rare, but possible via Settings UI), the icon would silently fall back to overflow. Now the promoter re-runs on every Explorer restart, idempotently, and the icon stays pinned.
+
 ## [2.5.9] — 2026-04-18
 
 ### Tray icon on Windows 11
