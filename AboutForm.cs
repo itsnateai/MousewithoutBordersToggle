@@ -12,6 +12,8 @@ internal sealed class AboutForm : Form
 {
     private readonly Label _primaryHotkeyLabel;
     private readonly Label _fileTransferHotkeyLabel;
+    private static readonly Color HeaderColor = Color.FromArgb(90, 95, 105);
+    private static readonly Color ValueColor = Color.FromArgb(30, 30, 30);
 
     public AboutForm(string primaryHotkey, string fileTransferHotkey)
     {
@@ -21,7 +23,7 @@ internal sealed class AboutForm : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
-        ClientSize = new Size(300, 225);
+        ClientSize = new Size(300, 245);
 
         var titleLabel = new Label
         {
@@ -44,20 +46,51 @@ internal sealed class AboutForm : Form
         };
         Controls.Add(descLabel);
 
+        // Hotkey rows — title label (bold, muted) stacked above the key combo (regular,
+        // darker). Makes the hotkey values the visual anchor instead of burying them
+        // in a single "Label: value" line where the prose overwhelms the combo.
+        var primaryTitle = new Label
+        {
+            Text = "Clipboard + File Transfer",
+            AutoSize = false,
+            Size = new Size(280, 16),
+            Location = new Point(10, 82),
+            Font = new Font(Font.FontFamily, 8.25f, FontStyle.Bold),
+            ForeColor = HeaderColor,
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        Controls.Add(primaryTitle);
+
         _primaryHotkeyLabel = new Label
         {
             AutoSize = false,
             Size = new Size(280, 20),
-            Location = new Point(10, 85),
+            Location = new Point(10, 99),
+            Font = new Font(Font.FontFamily, 9.5f),
+            ForeColor = ValueColor,
             TextAlign = ContentAlignment.MiddleCenter
         };
         Controls.Add(_primaryHotkeyLabel);
+
+        var fileTitle = new Label
+        {
+            Text = "File Transfer",
+            AutoSize = false,
+            Size = new Size(280, 16),
+            Location = new Point(10, 125),
+            Font = new Font(Font.FontFamily, 8.25f, FontStyle.Bold),
+            ForeColor = HeaderColor,
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        Controls.Add(fileTitle);
 
         _fileTransferHotkeyLabel = new Label
         {
             AutoSize = false,
             Size = new Size(280, 20),
-            Location = new Point(10, 107),
+            Location = new Point(10, 142),
+            Font = new Font(Font.FontFamily, 9.5f),
+            ForeColor = ValueColor,
             TextAlign = ContentAlignment.MiddleCenter
         };
         Controls.Add(_fileTransferHotkeyLabel);
@@ -69,7 +102,7 @@ internal sealed class AboutForm : Form
             Text = "Open log folder",
             AutoSize = false,
             Size = new Size(280, 18),
-            Location = new Point(10, 132),
+            Location = new Point(10, 170),
             TextAlign = ContentAlignment.MiddleCenter
         };
         logLink.LinkClicked += (_, _) =>
@@ -83,23 +116,11 @@ internal sealed class AboutForm : Form
         };
         Controls.Add(logLink);
 
-        var copyrightLabel = new Label
-        {
-            Text = "© 2026 itsnateai · MIT License",
-            AutoSize = false,
-            Size = new Size(280, 18),
-            Location = new Point(10, 153),
-            ForeColor = Color.FromArgb(110, 110, 110),
-            Font = new Font(Font.FontFamily, 8.25f),
-            TextAlign = ContentAlignment.MiddleCenter
-        };
-        Controls.Add(copyrightLabel);
-
         var githubBtn = new Button
         {
             Text = "GitHub",
             Size = new Size(80, 30),
-            Location = new Point(25, 175),
+            Location = new Point(25, 200),
             AccessibleName = "Open MWBToggle GitHub page"
         };
         githubBtn.Click += (_, _) =>
@@ -113,7 +134,7 @@ internal sealed class AboutForm : Form
         {
             Text = "Update",
             Size = new Size(70, 30),
-            Location = new Point(115, 175),
+            Location = new Point(115, 200),
             AccessibleName = "Check for updates"
         };
         updateBtn.Click += (_, _) =>
@@ -127,7 +148,7 @@ internal sealed class AboutForm : Form
         {
             Text = "Close",
             Size = new Size(80, 30),
-            Location = new Point(195, 175),
+            Location = new Point(195, 200),
             AccessibleName = "Close About dialog"
         };
         closeBtn.Click += (_, _) => Hide();
@@ -145,11 +166,12 @@ internal sealed class AboutForm : Form
     /// </summary>
     public void SetHotkeys(string primaryHotkey, string fileTransferHotkey)
     {
-        _primaryHotkeyLabel.Text = "Clipboard + File Transfer: " + MWBToggleApp.HotkeyToReadable(primaryHotkey);
-        _fileTransferHotkeyLabel.Text = "File Transfer: " + (
-            string.IsNullOrEmpty(fileTransferHotkey)
-                ? "(none)"
-                : MWBToggleApp.HotkeyToReadable(fileTransferHotkey));
+        _primaryHotkeyLabel.Text = string.IsNullOrEmpty(primaryHotkey)
+            ? "(none)"
+            : MWBToggleApp.HotkeyToReadable(primaryHotkey);
+        _fileTransferHotkeyLabel.Text = string.IsNullOrEmpty(fileTransferHotkey)
+            ? "(none)"
+            : MWBToggleApp.HotkeyToReadable(fileTransferHotkey);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
