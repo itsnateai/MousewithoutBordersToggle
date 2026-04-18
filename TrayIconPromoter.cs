@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Win32;
 
 namespace MWBToggle;
@@ -12,14 +13,24 @@ namespace MWBToggle;
 /// Windows 11 22H2+ stores per-icon visibility at
 /// <c>HKCU\Control Panel\NotifyIconSettings\&lt;hash&gt;</c> with a DWORD value
 /// named <c>IsPromoted</c> (1 = visible in taskbar, 0 = hidden, missing =
-/// Explorer's default, which shows as hidden). Explorer creates the subkey on
-/// the first <c>Shell_NotifyIcon(NIM_ADD)</c> call and polls the key about once
-/// a second — no Explorer restart or broadcast message required.
+/// Explorer's default, which shows as hidden). The per-icon subkey normally
+/// carries <c>ExecutablePath</c>, <c>InitialTooltip</c>, <c>UID</c>, and
+/// <c>IconSnapshot</c> fields — Explorer populates them on <c>NIM_ADD</c>
+/// when the caller passes <c>NIF_TIP</c>.
 ///
-/// This class enumerates the registry, finds the subkey(s) whose
-/// <c>ExecutablePath</c> matches the current exe, and promotes the icon if —
-/// and only if — Explorer hasn't already written an explicit value. We never
-/// override a user's deliberate 0; we only fill in the missing default.
+/// Two-phase identification so we survive Explorer edge cases:
+///   Phase 1: match a subkey whose <c>ExecutablePath</c> equals ours — the
+///            normal case, works on reruns and whenever Explorer wrote the
+///            full schema.
+///   Phase 2: if Phase 1 found nothing and exactly one "orphan" subkey
+///            (IconSnapshot present but ExecutablePath missing) has appeared
+///            since the baseline we captured before NIM_ADD, claim it —
+///            write BOTH our <c>ExecutablePath</c> AND <c>IsPromoted=1</c>.
+///            Defers when multiple orphans appear (Windows-login race);
+///            later ticks disambiguate as other apps' subkeys fill in.
+///
+/// We never override an explicit <c>IsPromoted=0</c> — that's the user
+/// having deliberately hidden us, and we respect it.
 ///
 /// ──────────────────────────────────────────────────────────────────
 /// This mechanism is undocumented. It has been stable across Win11
@@ -33,17 +44,39 @@ internal static class TrayIconPromoter
     private const int MinWin11Build = 22000;
 
     /// <summary>
-    /// Ensure the current exe's tray icon is promoted to visible in the taskbar.
-    /// Safe to call multiple times — no-ops on already-promoted entries, and
-    /// never overrides a user's explicit 0. Safe to call before Explorer has
-    /// registered our icon; in that case there's simply nothing to promote and
-    /// the call returns false.
+    /// Capture the set of existing subkey names BEFORE the tray icon
+    /// registers (i.e. before <c>NotifyIcon.Visible = true</c>). Anything
+    /// that appears later is a candidate for Phase-2 orphan matching.
+    ///
+    /// Returns null on failure (access denied, etc.) — callers should
+    /// treat null as "skip Phase 2" rather than "no subkeys existed,"
+    /// otherwise we'd confuse every pre-existing subkey with a fresh one.
     /// </summary>
-    /// <returns>True if at least one matching subkey was promoted this call.</returns>
-    internal static bool TryPromote(string exePath)
+    internal static HashSet<string>? CaptureBaseline()
     {
-        // Win10 uses a different schema (IconStreams blob). Skip — most Win10
-        // users have "Always show all icons" from the Win10 era anyway.
+        if (Environment.OSVersion.Version.Build < MinWin11Build) return null;
+        try
+        {
+            using var root = Registry.CurrentUser.OpenSubKey(KeyPath, writable: false);
+            if (root is null) return new HashSet<string>(StringComparer.Ordinal);
+            return new HashSet<string>(root.GetSubKeyNames(), StringComparer.Ordinal);
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"TrayIconPromoter.CaptureBaseline: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Ensure the current exe's tray icon is promoted to visible. Returns
+    /// true once we've identified our subkey (whether we needed to write
+    /// anything or not) so the caller's retry timer can stop. Returns
+    /// false while we're still waiting for Explorer to create or populate
+    /// it — caller retries.
+    /// </summary>
+    internal static bool TryPromote(string exePath, HashSet<string>? baseline)
+    {
         if (Environment.OSVersion.Version.Build < MinWin11Build) return false;
         if (string.IsNullOrWhiteSpace(exePath)) return false;
 
@@ -52,7 +85,9 @@ internal static class TrayIconPromoter
             using var root = Registry.CurrentUser.OpenSubKey(KeyPath, writable: true);
             if (root is null) return false;
 
-            bool promoted = false;
+            bool identified = false;
+            var orphanCandidates = new List<string>();
+
             foreach (var subName in root.GetSubKeyNames())
             {
                 try
@@ -61,35 +96,87 @@ internal static class TrayIconPromoter
                     if (sub is null) continue;
 
                     var path = sub.GetValue("ExecutablePath") as string;
-                    if (string.IsNullOrEmpty(path)) continue;
-                    if (!string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase))
-                        continue;
 
-                    // Respect user intent — if they explicitly hid the icon
-                    // (IsPromoted is present and 0), don't force it back on.
-                    var current = sub.GetValue("IsPromoted");
-                    if (current is int i && i == 0)
+                    // Phase 1 — path match. Handles reruns and the normal case
+                    // where Explorer populated the full schema on NIM_ADD.
+                    if (!string.IsNullOrEmpty(path))
                     {
-                        Logger.Info($"TrayIconPromoter: {subName} already set to 0 — leaving user's choice intact.");
+                        if (!string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        identified = true;
+                        var current = sub.GetValue("IsPromoted");
+                        if (current is int i0 && i0 == 0)
+                        {
+                            Logger.Info($"TrayIconPromoter: {subName} IsPromoted=0 — respecting user's choice.");
+                            continue;
+                        }
+                        if (current is int i1 && i1 == 1) continue;
+
+                        sub.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
+                        Logger.Info($"TrayIconPromoter: promoted {subName} for {path}.");
                         continue;
                     }
-                    if (current is int already && already == 1) continue;
 
-                    sub.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
-                    Logger.Info($"TrayIconPromoter: promoted {subName} for {path}.");
-                    promoted = true;
+                    // Phase 2 candidate — orphan subkey (IconSnapshot but no
+                    // ExecutablePath) that appeared AFTER our NIM_ADD.
+                    // Skip if we didn't capture a baseline (would false-claim
+                    // any pre-existing orphan belonging to another app).
+                    if (baseline is null) continue;
+                    if (baseline.Contains(subName)) continue;
+                    if (sub.GetValue("IconSnapshot") is not byte[]) continue;
+
+                    orphanCandidates.Add(subName);
                 }
                 catch (Exception ex)
                 {
                     Logger.Warn($"TrayIconPromoter: subkey {subName}: {ex.Message}");
                 }
             }
-            return promoted;
+
+            // Phase 2 commit. Only claim when exactly one orphan appeared —
+            // multiple = Windows-login race with other tray apps, wait for
+            // the next tick. Their subkeys will fill in ExecutablePath as
+            // Explorer does its next pass, leaving ours as the sole orphan.
+            if (!identified && orphanCandidates.Count == 1)
+            {
+                var subName = orphanCandidates[0];
+                try
+                {
+                    using var sub = root.OpenSubKey(subName, writable: true);
+                    if (sub is not null)
+                    {
+                        var current = sub.GetValue("IsPromoted");
+                        if (current is int i0 && i0 == 0)
+                        {
+                            Logger.Info($"TrayIconPromoter: orphan {subName} IsPromoted=0 — respecting user's choice.");
+                            identified = true;
+                        }
+                        else
+                        {
+                            sub.SetValue("ExecutablePath", exePath, RegistryValueKind.String);
+                            sub.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
+                            Logger.Info($"TrayIconPromoter: claimed orphan {subName} → wrote ExecutablePath + IsPromoted=1 for {exePath}.");
+                            identified = true;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn($"TrayIconPromoter: claim orphan {subName}: {ex.Message}");
+                }
+            }
+            else if (orphanCandidates.Count > 1)
+            {
+                Logger.Info($"TrayIconPromoter: {orphanCandidates.Count} new orphan subkeys — deferring to next tick.");
+            }
+
+            return identified;
         }
         catch (Exception ex)
         {
-            // Registry access denied, schema moved, hive locked — anything.
-            // This is a UX polish, never a crash surface.
+            // Registry access denied, hive locked, schema moved — anything.
+            // This is UX polish, never a crash surface.
             Logger.Warn($"TrayIconPromoter: {ex.Message}");
             return false;
         }
