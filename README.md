@@ -8,18 +8,19 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 
 ## Features
 
-- **Hotkey toggle**: `Ctrl + Alt + C` (configurable via menu or INI) flips both ShareClipboard and TransferFile
-- **Tray icon**: Green = sharing ON, Red = sharing OFF. Left-click to toggle.
+- **Primary hotkey**: `Win + Ctrl + Shift + F` by default (configurable via menu picker or INI) flips both ShareClipboard and TransferFile at once
+- **Second hotkey for File Transfer alone**: Optional — keep the primary as the "turn everything off" button and bind a separate key to toggle only file sharing
+- **Tray icon**: Green = sharing ON, Red = sharing OFF. Left-click to toggle. Tooltip shows each channel separately (e.g. `Clipboard ON · Files OFF`).
 - **Middle-click**: Opens the MWB settings window directly
-- **Pause sharing**: Temporarily disable for 5 minutes, 30 minutes, or indefinitely with auto-resume (survives laptop sleep)
-- **Independent file transfer toggle**: Control TransferFile separately from ShareClipboard
+- **Independent Clipboard and File Transfer toggles**: Each channel can be flipped individually from the tray menu, not just together
+- **Pause sharing**: Temporarily disable for 5 minutes, 30 minutes, or indefinitely with auto-resume. Survives laptop sleep, and on resume restores the exact pre-pause state instead of turning both back on blindly.
+- **Hotkey picker**: Capturing a new key combo suppresses it from the rest of Windows so you don't fire whatever else happens to be listening
 - **PowerToys submenu**: Quick access to PowerToys MWB settings and the legacy MWB configuration
 - **Run at startup**: One-click toggle to add/remove from Windows Startup folder
 - **One-way sharing**: Disable sharing on one machine while keeping it on another for directional clipboard/file transfer
 - **Zero polling**: Uses OS-level FileSystemWatcher — no CPU usage when idle
 - **On-screen display**: Discreet dark bubble pinned above the system tray with a green/red state dot — no toast notification spam, no cursor tracking
-- **One-click self-update**: Check for new versions from the About dialog — SHA256-verified downloads
-- **Atomic settings writes**: Toggles can't leave your MWB config half-written, even on power loss or AV interruption
+- **One-click self-update**: Check for new versions from the About dialog — SHA256-verified downloads, rolls back if the new build doesn't start cleanly
 
 ## Screenshots
 
@@ -72,15 +73,18 @@ Create a `MWBToggle.ini` file in the same folder as the exe:
 
 ```ini
 [Settings]
-Hotkey=^!c
+Hotkey=#^+f
+FileTransferHotkey=
 ConfirmToggle=false
 SoundFeedback=false
 MiddleClickMwbSettings=true
+SingleClickToggles=true
 ```
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `Hotkey` | `^!c` (Ctrl+Alt+C) | Hotkey string (`#` Win, `^` Ctrl, `!` Alt, `+` Shift) |
+| `Hotkey` | `#^+f` (Win+Ctrl+Shift+F) | Primary hotkey — flips both Clipboard and File Transfer. AHK-style string: `#` Win, `^` Ctrl, `!` Alt, `+` Shift. Leave empty to unbind. |
+| `FileTransferHotkey` | *(empty)* | Optional second hotkey that toggles only File Transfer (leaves Clipboard alone). Same AHK-style format. |
 | `ConfirmToggle` | `false` | Prompt before each toggle |
 | `SoundFeedback` | `false` | Beep on toggle (high tone ON, low tone OFF) |
 | `MiddleClickMwbSettings` | `true` | Middle-click tray icon opens MWB settings |
@@ -94,7 +98,9 @@ MWBToggle reads and writes the PowerToys Mouse Without Borders `settings.json` f
 %LOCALAPPDATA%\Microsoft\PowerToys\MouseWithoutBorders\settings.json
 ```
 
-It toggles the `ShareClipboard` and `TransferFile` values and swaps the file in atomically (write to `.tmp` → `File.Replace` with `.bak` rotation), so a crash or power loss mid-toggle can't leave your MWB config half-written. If MWB has the file open, the toggle retries a few times before giving up.
+It flips the `ShareClipboard` and `TransferFile` values in the JSON, copies the current file to `settings.json.bak` first (for manual rollback), and then truncate-writes the new content in place. The in-place write matters: PowerToys Mouse Without Borders watches its settings file with a FileSystemWatcher that reacts to `LastWrite`-type `Changed` events, which in-place writes emit directly. A `.tmp` + rename dance would preserve data against a power-cut mid-write but doesn't emit the right event, so MWB would never see the change — settings.json would say one thing while the running MWB module kept sharing on the old state.
+
+If MWB has the file briefly locked, the toggle retries a few times before giving up.
 
 ## Troubleshooting
 
