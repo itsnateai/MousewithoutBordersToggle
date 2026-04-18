@@ -2,6 +2,12 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.9] — 2026-04-18
+
+### Tray icon on Windows 11
+- **Tray icon now auto-shows in the taskbar on first run.** Previously, Windows 11 hid every new tray icon in the overflow flyout until you went to Settings → Personalization → Taskbar → *Other system tray icons* and flipped the toggle on. For a tray-only app like MWBToggle that's a lousy first-run experience. First launch on Win11 22H2+ now sets the visibility flag for our icon automatically. If you've already toggled the icon off yourself, that choice is respected — we never flip a deliberate OFF back to ON.
+- **Tray hover text now shows immediately at startup** (reads `MWB Toggle` before the state-driven text kicks in a second later). Minor on its own, but also what lets Windows populate our registry entry cleanly so the Settings UI lists us correctly.
+
 ## [2.5.8] — 2026-04-17
 
 ### The headline fix
