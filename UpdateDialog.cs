@@ -206,7 +206,8 @@ internal sealed class UpdateDialog : Form
             _lblDetail.Text = "Use: winget upgrade itsnateai.MWBToggle";
             _btnAction.Visible = false;
             _btnCancel.Text = "OK";
-            _btnCancel.Location = new Point(170, 112);
+            _btnCancel.Size = new Size(64, 26);
+            _btnCancel.Location = new Point((ClientSize.Width - 64) / 2, 112);
             return;
         }
 
@@ -315,7 +316,11 @@ internal sealed class UpdateDialog : Form
             _lblStatus.Text = "You're on the latest version!";
             _btnAction.Visible = false;
             _btnCancel.Text = "OK";
-            _btnCancel.Location = new Point(170, 112);
+            // Shrink the OK button for this acknowledgment-only state — a large
+            // Cancel-sized button makes the simple "you're up to date" popup feel
+            // heavier than it needs to be. Re-center inside the 420-wide dialog.
+            _btnCancel.Size = new Size(64, 26);
+            _btnCancel.Location = new Point((ClientSize.Width - 64) / 2, 112);
         }
     }
 
