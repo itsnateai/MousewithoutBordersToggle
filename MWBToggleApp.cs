@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
@@ -244,10 +245,22 @@ internal sealed class MWBToggleApp : ApplicationContext
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
+        // Snapshot existing NotifyIconSettings subkeys BEFORE our NIM_ADD so
+        // TrayIconPromoter can identify the one Explorer creates for us even
+        // when it ships without ExecutablePath populated.
+        var trayBaseline = TrayIconPromoter.CaptureBaseline();
+
         // ── Tray icon ──────────────────────────────────────────────────────
+        // Seed a non-empty tooltip BEFORE Visible=true so Shell_NotifyIcon
+        // passes NIF_TIP on NIM_ADD. Without it Explorer's per-icon schema
+        // in the registry comes out sparse (IconSnapshot only — no
+        // ExecutablePath / InitialTooltip), which breaks both Settings-UI
+        // listing and our promotion logic. SyncTray overwrites it with the
+        // real state-driven tooltip shortly after startup.
         _trayIcon = new NotifyIcon
         {
             ContextMenuStrip = _menu,
+            Text = "MWB Toggle",
             Visible = true
         };
         _trayIcon.MouseClick += (_, e) =>
@@ -257,6 +270,12 @@ internal sealed class MWBToggleApp : ApplicationContext
             else if (e.Button == MouseButtons.Middle && _middleClickOpensMwbSettings)
                 OpenMwbSettings();
         };
+
+        // Ensure our tray icon is visible in the taskbar rather than buried in
+        // Win11's overflow flyout. Explorer writes the per-icon registry key
+        // asynchronously after NIM_ADD, so we poll up to 10 s. See
+        // TrayIconPromoter for the two-phase identification rules.
+        StartTrayIconPromotion(trayBaseline);
 
         // ── Global hotkey (may update _hotkey on fallback). Empty = user unbound it
         // and we shouldn't silently rebind to the default on next launch.
@@ -2196,6 +2215,33 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Clone the icon so it doesn't depend on the stream lifetime
         using var tempIcon = new Icon(stream);
         return (Icon)tempIcon.Clone();
+    }
+
+    /// <summary>
+    /// Poll until TrayIconPromoter identifies our per-icon NotifyIconSettings
+    /// subkey — 500 ms × 20 attempts = 10 s cap. Explorer writes the subkey
+    /// asynchronously after NIM_ADD; under Windows-login load it can take a
+    /// few seconds. The timer stops on first successful identification OR
+    /// after exhausting attempts. On Win10 the helper returns false
+    /// immediately so the loop ticks harmlessly to exhaustion.
+    /// </summary>
+    private void StartTrayIconPromotion(HashSet<string>? baseline)
+    {
+        var promoteTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        int attempts = 0;
+        const int maxAttempts = 20;
+        promoteTimer.Tick += (_, _) =>
+        {
+            attempts++;
+            bool done = TrayIconPromoter.TryPromote(Application.ExecutablePath, baseline)
+                        || attempts >= maxAttempts;
+            if (done)
+            {
+                promoteTimer.Stop();
+                promoteTimer.Dispose();
+            }
+        };
+        promoteTimer.Start();
     }
 
     private void ExitApplication()
