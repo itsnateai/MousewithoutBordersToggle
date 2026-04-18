@@ -122,6 +122,9 @@ It toggles the `ShareClipboard` and `TransferFile` values and swaps the file in 
 **What's the `.ok` sentinel file I see after an update?**
 - Self-update safety net. The update downloads the new exe as `MWBToggle.exe.new`, swaps it in, and keeps the prior version as `MWBToggle.exe.old`. On a successful launch of the new version, MWBToggle writes `.ok` to confirm the new build started cleanly. If that file is missing next launch, the old exe is restored — so a broken update can't leave you unable to run the app.
 
+**What about the `settings.json.bak` next to MWB's settings?**
+- MWBToggle rewrites `settings.json` in place on every toggle — same atomic-write pattern the original PowerToys Settings UI uses. Before each rewrite, the current `settings.json` is copied to `settings.json.bak`. That means `.bak` always holds the state **from the previous toggle**, not your original pre-MWBToggle config. If you need a "restore my original MWB settings" path, keep your own copy before using MWBToggle — the `.bak` is for recovering from a bad write, not for undoing the tool entirely.
+
 **Does this modify PowerToys itself?**
 - No. MWBToggle only reads/writes PowerToys' Mouse Without Borders `settings.json` — the same file PowerToys already edits when you toggle those switches in its UI. PowerToys keeps running the whole time.
 

@@ -2,6 +2,25 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.8] — 2026-04-17
+
+### The headline fix
+- **Toggling now actually takes effect in Mouse Without Borders.** Previous versions wrote the new values to `settings.json` using an atomic tmp-file + rename, which is clean on paper but made PowerToys' own file watcher skip the change — so the tray icon flipped but MWB kept sharing the clipboard and files in memory as if nothing had happened. This version writes the file in place the same way the original AHK tool did, which PT's watcher sees and MWB reloads from immediately. The tray toggle now actually toggles sharing.
+
+### Tray tooltip
+- **Hover text shows each channel separately.** Previously read `Clipboard/Files: ON` as one combined state, which was misleading when the two channels were in different states. Now reads e.g. `MWBToggle v2.5.8 — Clipboard ON · Files OFF`.
+
+### About dialog
+- **Hotkey rows redesigned.** Each hotkey now stacks a bold muted title (`Clipboard + File Transfer`, `File Transfer`) above the key combo in regular weight — much more scannable than the previous single-line `Label: combo` layout.
+- **Bottom padding restored.** v2.5.7's redesign put the button row too close to the window chrome; buttons are now nudged up for a cleaner margin.
+- **Dropped the `© 2026 itsnateai · MIT License` line** from the dialog. Copyright is already embedded in the exe metadata (Windows Properties → Details), and the GitHub button opens the repo with its LICENSE for anyone who wants it.
+
+### Update dialog
+- **"You're on the latest version!" popup has a smaller OK button.** The Cancel-sized button on a simple acknowledgment popup looked out of proportion. Shrunk and re-centered.
+
+### Diagnostics
+- **Every successful toggle is now logged** to `%LOCALAPPDATA%\MWBToggle\mwbtoggle.log` as an INFO line with the new state and the settings.json path written. Makes support triage one `tail` away instead of requiring file-system forensics.
+
 ## [2.5.7] — 2026-04-17
 
 ### About dialog
