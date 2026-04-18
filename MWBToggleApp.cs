@@ -439,14 +439,21 @@ internal sealed class MWBToggleApp : ApplicationContext
 
             if (!WriteSettingsAtomic(json))
             {
+                Logger.Warn("DoToggle aborted — WriteSettingsAtomic returned false.");
                 ShowOSD("Could not write settings.json — file locked. Try again.", 5000);
                 return;
             }
 
+            bool nowOn = !currentlyOn;
+            // Breadcrumb on every successful toggle — on an LTR tray app, this is the
+            // single most useful line in the log when a user reports "the toggle
+            // doesn't work." Without it the only evidence is settings.json mtime, which
+            // support can't ask for easily. One line per toggle, negligible volume.
+            Logger.Info($"Toggled {(nowOn ? "ON" : "OFF")} — ShareClipboard={nowOn} TransferFile={nowOn}, wrote {_settingsPath}");
+
             WaitWithMessagePump(300);
             SyncTray();
 
-            bool nowOn = !currentlyOn;
             ShowOSDState(nowOn ? "Clipboard + File · ON" : "Clipboard + File · OFF", nowOn);
 
             if (_soundFeedback)
@@ -468,7 +475,6 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// </summary>
     private bool WriteSettingsAtomic(string json)
     {
-        string tmpPath = _settingsPath + ".tmp";
         string bakPath = _settingsPath + ".bak";
 
         // Suppress our own FileSystemWatcher event — this is a self-write, not an external one.
@@ -482,11 +488,37 @@ internal sealed class MWBToggleApp : ApplicationContext
             _suppressWatcherUntilUtc = DateTime.UtcNow.AddMilliseconds(500);
             try
             {
-                File.WriteAllText(tmpPath, json, Utf8NoBom);
+                // ── The core-feature fix ──────────────────────────────────────
+                // PowerToys' Mouse Without Borders watches settings.json with a
+                // FileSystemWatcher that only reacts to `Changed` events. The
+                // previous port used `File.Replace(tmp, target, bak)` for atomic
+                // safety — elegant, but the NTFS ReplaceFile call invalidates the
+                // file's identity and PT's watcher never saw the change. The app
+                // would flip its own tray icon but MWB kept sharing on the old
+                // in-memory state.
+                //
+                // The AHK version worked because it wrote in-place with `FileOpen("w")`
+                // — same identity, LastWrite bumped, Changed event fires. We match
+                // that here: back up the current settings first (manual rollback),
+                // then truncate-and-write the target directly.
+                //
+                // We lose the "atomic against power-cut mid-write" property that
+                // File.Replace gave us. In exchange, the toggle actually takes
+                // effect. For a 2.5 KB settings.json on a tray-app path, that's
+                // a trade worth making — and the .bak from the previous toggle
+                // is still recoverable manually if anything does go wrong.
                 if (File.Exists(_settingsPath))
-                    File.Replace(tmpPath, _settingsPath, bakPath, ignoreMetadataErrors: true);
-                else
-                    File.Move(tmpPath, _settingsPath);
+                {
+                    try { File.Copy(_settingsPath, bakPath, overwrite: true); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Backup failed — warn and proceed. The write itself is
+                        // the value here; losing the .bak is not a correctness issue.
+                        Logger.Warn($"WriteSettingsAtomic backup failed: {ex.Message}");
+                    }
+                }
+
+                File.WriteAllText(_settingsPath, json, Utf8NoBom);
                 return true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -497,10 +529,6 @@ internal sealed class MWBToggleApp : ApplicationContext
                 WaitWithMessagePump(200);
             }
         }
-
-        try { if (File.Exists(tmpPath)) File.Delete(tmpPath); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { Logger.Warn($"tmp cleanup: {ex.Message}"); }
         return false;
     }
 
@@ -537,12 +565,12 @@ internal sealed class MWBToggleApp : ApplicationContext
         @"(""TransferFile""\s*:\s*\{\s*""value""\s*:\s*)(true|false)",
         RegexOptions.Compiled);
 
-    // Pre-built tooltip strings — zero allocation on sync
-    private static readonly string TrayTextOn  = $"MWBToggle v{Version} — Clipboard/Files: ON";
-    private static readonly string TrayTextOff = $"MWBToggle v{Version} — Clipboard/Files: OFF";
+    // Pre-built version prefix — zero allocation per sync.
     private static readonly string TrayTextVersionPrefix = $"MWBToggle v{Version}";
 
     // Compose the tray tooltip from the last-synced state + any active pause.
+    // Clipboard and File Transfer are independent, so the tooltip shows each channel
+    // explicitly — "Clipboard ON · Files OFF" — instead of a single combined ON/OFF.
     // Shell clamps NotifyIcon.Text at 127 chars; all formats below fit comfortably.
     private string BuildTrayTooltip()
     {
@@ -555,7 +583,9 @@ internal sealed class MWBToggleApp : ApplicationContext
             }
             return $"{TrayTextVersionPrefix} — Paused";
         }
-        return _lastSyncState ? TrayTextOn : TrayTextOff;
+        string clip = _lastSyncState ? "ON" : "OFF";
+        string file = _lastTransferFileState ? "ON" : "OFF";
+        return $"{TrayTextVersionPrefix} — Clipboard {clip} · Files {file}";
     }
 
     /// <summary>
@@ -734,19 +764,21 @@ internal sealed class MWBToggleApp : ApplicationContext
             _clipboardItem.Checked = clipOn;
         }
 
-        // Tooltip depends on pause too, which can change without clipOn moving.
-        // BuildTrayTooltip handles the Paused case; _lastTooltip gates the shell update.
+        // Update file-state BEFORE tooltip so BuildTrayTooltip sees the current value
+        // for both channels. Previously the tooltip read a stale _lastTransferFileState.
+        if (fileOn != _lastTransferFileState)
+        {
+            _lastTransferFileState = fileOn;
+            _transferFileItem.Checked = fileOn;
+        }
+
+        // Tooltip depends on clip + file + pause. BuildTrayTooltip composes all three;
+        // _lastTooltip gates the shell update so NotifyIcon.Text only fires on change.
         string tooltip = BuildTrayTooltip();
         if (tooltip != _lastTooltip)
         {
             _lastTooltip = tooltip;
             _trayIcon.Text = tooltip;
-        }
-
-        if (fileOn != _lastTransferFileState)
-        {
-            _lastTransferFileState = fileOn;
-            _transferFileItem.Checked = fileOn;
         }
 
         // File Transfer depends on clipboard — grey it out when clipboard is OFF,
