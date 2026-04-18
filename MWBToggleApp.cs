@@ -258,6 +258,13 @@ internal sealed class MWBToggleApp : ApplicationContext
                 OpenMwbSettings();
         };
 
+        // Ensure our tray icon is visible in the taskbar rather than buried in
+        // Win11's overflow flyout. Explorer creates the NotifyIconSettings
+        // subkey asynchronously after our NIM_ADD above, so we retry every
+        // 500 ms up to 3 seconds. See TrayIconPromoter for the respect-user-
+        // intent rules (never overrides an explicit 0).
+        StartTrayIconPromotion();
+
         // ── Global hotkey (may update _hotkey on fallback). Empty = user unbound it
         // and we shouldn't silently rebind to the default on next launch.
         if (!string.IsNullOrEmpty(_hotkey))
@@ -2196,6 +2203,33 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Clone the icon so it doesn't depend on the stream lifetime
         using var tempIcon = new Icon(stream);
         return (Icon)tempIcon.Clone();
+    }
+
+    /// <summary>
+    /// Kick off the tray-icon promotion retry loop. Explorer creates the
+    /// per-icon NotifyIconSettings subkey asynchronously after our NIM_ADD,
+    /// so we retry every 500 ms up to 6 times (3 s total). The timer stops
+    /// itself on first success OR after exhausting attempts. On Win10 the
+    /// helper returns false immediately so the loop ticks harmlessly to
+    /// exhaustion — no registry writes, no thrash.
+    /// </summary>
+    private void StartTrayIconPromotion()
+    {
+        var promoteTimer = new System.Windows.Forms.Timer { Interval = 500 };
+        int attempts = 0;
+        const int maxAttempts = 6;
+        promoteTimer.Tick += (_, _) =>
+        {
+            attempts++;
+            bool done = TrayIconPromoter.TryPromote(Application.ExecutablePath)
+                        || attempts >= maxAttempts;
+            if (done)
+            {
+                promoteTimer.Stop();
+                promoteTimer.Dispose();
+            }
+        };
+        promoteTimer.Start();
     }
 
     private void ExitApplication()
