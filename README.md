@@ -24,9 +24,9 @@ A lightweight system tray companion for [PowerToys Mouse Without Borders](https:
 
 ## Screenshots
 
-| Sharing ON | Sharing OFF | Tray Menu |
-|:---:|:---:|:---:|
-| ![ON](screenshots/mwbiconon.png) | ![OFF](screenshots/mwbiconoff.png) | ![Menu](screenshots/mwbmenu.png) |
+| Sharing ON | Sharing OFF | Tray Menu | About |
+|:---:|:---:|:---:|:---:|
+| ![ON](screenshots/mwbiconon.png) | ![OFF](screenshots/mwbiconoff.png) | ![Menu](screenshots/mwbmenu.png) | ![About](screenshots/mwbsettings.png) |
 
 ## Requirements
 
