@@ -2,6 +2,11 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.13] — 2026-04-23
+
+### Self-update fix
+- **The in-app updater now works again.** GitHub recently started serving release-asset downloads from a new CDN host (`release-assets.githubusercontent.com`) alongside the legacy one (`objects.githubusercontent.com`). MWBToggle's update check follows redirects manually and validates each hop against an explicit allowlist — and the new host wasn't on it, so clicking *Upgrade Now* failed with `URL not in allowlist`. Both hosts are now allowlisted. **Affected versions:** v2.5.0–v2.5.12 — those builds shipped with the old allowlist, so they can't self-update to this fix. To get past it, run `winget upgrade itsnateai.MWBToggle` or download `MWBToggle.exe` from the GitHub release page once and replace your copy. After v2.5.13 the self-updater works again as normal.
+
 ## [2.5.12] — 2026-04-23
 
 ### Self-update integrity

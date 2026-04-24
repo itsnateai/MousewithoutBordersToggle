@@ -158,7 +158,13 @@ internal sealed class UpdateDialog : Form
     {
         "https://api.github.com/",
         "https://github.com/itsnateai/",
+        // GitHub release-asset CDN. Both hosts are seen in the wild — GitHub
+        // rolled `release-assets.githubusercontent.com` alongside the legacy
+        // `objects.githubusercontent.com` and either can be the redirect target
+        // for a `github.com/.../releases/download/...` GET. Keeping both keeps
+        // self-update working through the rollout.
         "https://objects.githubusercontent.com/",
+        "https://release-assets.githubusercontent.com/",
     };
 
     private static bool IsAllowlisted(string url) =>
@@ -351,7 +357,8 @@ internal sealed class UpdateDialog : Form
         {
             // Validate download URL origin before fetching
             if (!_downloadUrl!.StartsWith("https://github.com/itsnateai/", StringComparison.OrdinalIgnoreCase) &&
-                !_downloadUrl!.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
+                !_downloadUrl!.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase) &&
+                !_downloadUrl!.StartsWith("https://release-assets.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
             {
                 ShowError("Update failed: download URL is not from the expected source.", _downloadUrl!);
                 return;
@@ -367,7 +374,8 @@ internal sealed class UpdateDialog : Form
                 // The general UrlAllowlist would also let through api.github.com paths,
                 // but a release asset must come from github.com/itsnateai/… or the CDN.
                 if (!_hashFileUrl.StartsWith("https://github.com/itsnateai/", StringComparison.OrdinalIgnoreCase) &&
-                    !_hashFileUrl.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
+                    !_hashFileUrl.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase) &&
+                    !_hashFileUrl.StartsWith("https://release-assets.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
                 {
                     ShowError("Update failed: hash URL is not from the expected source.", _hashFileUrl);
                     return;
