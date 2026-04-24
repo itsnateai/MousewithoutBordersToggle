@@ -2,6 +2,8 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+> **Stuck on v2.5.10–v2.5.12?** The in-app *Update* button on those builds can't reach the latest release because GitHub silently changed its asset-hosting CDN host and the older allowlist didn't know about it. One-time rescue: run `winget upgrade itsnateai.MWBToggle` or download `MWBToggle.exe` from the [latest release](https://github.com/itsnateai/MousewithoutBordersToggle/releases/latest) and replace your existing copy. v2.5.13+ self-updates normally.
+
 Toggle **Mouse Without Borders** clipboard and file sharing on/off with a hotkey or tray icon click.
 
 A lightweight system tray companion for [PowerToys Mouse Without Borders](https://learn.microsoft.com/en-us/windows/powertoys/mouse-without-borders) that lets you quickly disable clipboard/file sharing for privacy (passwords, sensitive data) — for when you're doing a lot of local copy/paste and don't want it constantly going to the MWB watcher. Also helps with large file copies not lagging you when you're not using the feature. Since it runs per-machine, you can also disable sharing on one side to create **one-way sharing**. MWB stays enabled — this only manipulates the clipboard server in the background.
