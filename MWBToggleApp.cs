@@ -1291,6 +1291,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         string? exe = FindPowerToysExe();
         if (exe != null)
         {
+            // nosemgrep: gitlab.security_code_scan.SCS0001-1 -- exe comes from FindPowerToysExe() which only returns paths under %ProgramFiles%\PowerToys; args are a literal
             using var _ = Process.Start(new ProcessStartInfo(exe)
             {
                 Arguments = "--open-settings=MouseWithoutBorders",

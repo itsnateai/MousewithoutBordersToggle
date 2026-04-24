@@ -111,6 +111,7 @@ internal sealed class AboutForm : Form
             if (!string.IsNullOrEmpty(dir))
             {
                 try { System.IO.Directory.CreateDirectory(dir); } catch { }
+                // nosemgrep: gitlab.security_code_scan.SCS0001-1 -- dir is derived from Logger.LogPath, a hardcoded %LOCALAPPDATA%\MWBToggle\mwbtoggle.log constant; no user input reaches this sink
                 using var _ = Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
             }
         };
@@ -125,6 +126,7 @@ internal sealed class AboutForm : Form
         };
         githubBtn.Click += (_, _) =>
         {
+            // nosemgrep: gitlab.security_code_scan.SCS0001-1 -- URL is a string literal, zero user input
             using var _ = Process.Start(new ProcessStartInfo("https://github.com/itsnateai/MousewithoutBordersToggle")
             { UseShellExecute = true });
         };

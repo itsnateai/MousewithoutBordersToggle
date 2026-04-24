@@ -456,6 +456,7 @@ internal sealed class UpdateDialog : Form
                 File.Move(exePath, oldPath);
             File.Move(newPath, exePath);
 
+            // nosemgrep: gitlab.security_code_scan.SCS0001-1 -- exePath is Environment.ProcessPath; the replacement binary was SHA256-verified above against a SHA256SUMS asset from the github.com/itsnateai/ allowlisted origin (fail-closed on missing sums for >= v2.5.0)
             using var _ = Process.Start(new ProcessStartInfo(exePath)
             {
                 Arguments = "--after-update",
