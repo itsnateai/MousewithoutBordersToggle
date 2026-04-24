@@ -2,6 +2,11 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.12] — 2026-04-23
+
+### Self-update integrity
+- **Updates now abort if the release is missing its SHA256SUMS file.** Previously, when a release didn't publish a SHA256SUMS asset, the updater logged a warning and applied the download anyway — a pragmatic fallback meant for releases older than v2.5.0 that predate the workflow publishing checksums. That fallback is now version-gated: a release at v2.5.0 or newer without SHA256SUMS is treated as a supply-chain error and the update is aborted with a clear prompt to use `winget upgrade` or download manually. Pre-v2.5.0 releases stay grandfathered so very old installs can still reach a hash-emitting version. No visible change for normal updates from GitHub Releases — this only tightens a path that was never meant to be hit post-v2.5.0. Because MWBToggle isn't Authenticode-signed, SHA256SUMS is the primary integrity control for self-updates.
+
 ## [2.5.11] — 2026-04-23
 
 ### Menu toggles now persist across restarts

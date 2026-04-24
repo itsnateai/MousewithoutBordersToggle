@@ -7,9 +7,9 @@
     <ApplicationIcon>mwbtoggle.ico</ApplicationIcon>
     <AssemblyName>MWBToggle</AssemblyName>
     <RootNamespace>MWBToggle</RootNamespace>
-    <Version>2.5.11</Version>
-    <FileVersion>2.5.11.0</FileVersion>
-    <InformationalVersion>2.5.11</InformationalVersion>
+    <Version>2.5.12</Version>
+    <FileVersion>2.5.12.0</FileVersion>
+    <InformationalVersion>2.5.12</InformationalVersion>
     <Description>Toggle Mouse Without Borders clipboard and file sharing</Description>
     <Product>MWBToggle</Product>
     <Company>itsNate</Company>
