@@ -11,8 +11,12 @@ jobs:
     name: Scan
     runs-on: ubuntu-latest
     container:
-      image: semgrep/semgrep
+      # Pinned — floating `:latest` means a compromised registry image
+      # could smuggle arbitrary scanner behaviour into CI.
+      image: semgrep/semgrep:1.156.0
     if: (github.actor != 'dependabot[bot]')
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: semgrep ci
