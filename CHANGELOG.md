@@ -2,6 +2,11 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.11] — 2026-04-23
+
+### Menu toggles now persist across restarts
+- **"Single-click toggles sharing" and "Middle-click opens MWB Settings" now survive app restart.** Previously, flipping either checkbox from the PowerToys submenu only applied to the current session — on next launch the setting reverted to the default (or whatever was in `MWBToggle.ini`). Now each click persists the new value to the INI immediately, matching the behavior of every other setting in the menu (hotkeys, Run at Startup, etc.). If you'd changed either of these via the menu and been confused why it kept coming back — this was why.
+
 ## [2.5.10] — 2026-04-18
 
 ### Explorer-restart recovery

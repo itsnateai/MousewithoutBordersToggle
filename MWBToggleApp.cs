@@ -1343,12 +1343,14 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         _singleClickToggles = !_singleClickToggles;
         _singleClickItem.Checked = _singleClickToggles;
+        SaveConfig(new[] { ("SingleClickToggles", _singleClickToggles ? "true" : "false") });
     }
 
     private void ToggleMiddleClick()
     {
         _middleClickOpensMwbSettings = !_middleClickOpensMwbSettings;
         _middleClickItem.Checked = _middleClickOpensMwbSettings;
+        SaveConfig(new[] { ("MiddleClickMwbSettings", _middleClickOpensMwbSettings ? "true" : "false") });
     }
 
     // Return envelope for PromptForHotkey — null = cancelled, Unbind flag = clear binding,
