@@ -31,6 +31,7 @@ internal static class Logger
 
     internal static void Info(string msg) => Write("INFO", msg);
     internal static void Warn(string msg) => Write("WARN", msg);
+    internal static void Error(string msg) => Write("ERROR", msg);
 
     private static void Write(string level, string msg)
     {

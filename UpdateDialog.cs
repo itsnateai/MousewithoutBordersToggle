@@ -36,6 +36,12 @@ internal sealed class UpdateDialog : Form
     private const string AppName = "MWBToggle";
     private const string GitHubRepo = "itsnateai/MousewithoutBordersToggle";
 
+    // First version tag that emits a SHA256SUMS release asset (commit 6f7f1db).
+    // For any remote version >= this, a missing SHA256SUMS is treated as a
+    // supply-chain error and the update is aborted. Older releases are
+    // grandfathered so existing users on pre-2.5.0 can still self-update.
+    private static readonly Version FIRST_HASH_EMITTING_VERSION = new Version(2, 5, 0);
+
     public UpdateDialog()
     {
         Text = $"{AppName} — Update";
@@ -421,10 +427,25 @@ internal sealed class UpdateDialog : Form
             }
             else
             {
-                // Release did not publish SHA256SUMS — log and continue. Older releases
-                // (<v2.5.0) predate the workflow publishing a sums file; winget is the
-                // preferred upgrade path for those.
-                Logger.Warn("No SHA256SUMS asset on this release — proceeding without hash verify.");
+                // Version-gated fail-closed: if the remote release is >= FIRST_HASH_EMITTING_VERSION
+                // and no SHA256SUMS asset was found, abort rather than installing unverified.
+                // Grandfathered older releases (<v2.5.0) keep the skip-with-log behavior so users
+                // upgrading from very old builds can still reach a hash-emitting version safely.
+                bool isGrandfathered = Version.TryParse(_remoteVersion, out var remoteVer)
+                                    && remoteVer < FIRST_HASH_EMITTING_VERSION;
+                if (isGrandfathered)
+                {
+                    Logger.Warn($"Update verify SKIPPED (grandfathered release {_remoteVersion} < {FIRST_HASH_EMITTING_VERSION})");
+                    // continue to apply
+                }
+                else
+                {
+                    TryDelete(newPath);
+                    Logger.Error($"Update aborted: SHA256SUMS missing for release {_remoteVersion} (>= {FIRST_HASH_EMITTING_VERSION}). Fail-closed.");
+                    ShowError("Update integrity file missing.",
+                        $"SHA256SUMS was not found in release {_remoteVersion}. Aborting for security — try `winget upgrade` or download manually.");
+                    return;
+                }
             }
 
             _lblStatus.Text = "Applying update...";
