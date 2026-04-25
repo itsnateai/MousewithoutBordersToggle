@@ -20,11 +20,18 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Flat-layout repo: MWBToggle.csproj sits at the root, so the SDK glob
+         would otherwise sweep MWBToggle.Tests/**/*.cs into this assembly. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);MWBToggle.Tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="on.ico" LogicalName="MWBToggle.on.ico" />
     <EmbeddedResource Include="off.ico" LogicalName="MWBToggle.off.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="MWBToggle.Tests" />
   </ItemGroup>
 
 </Project>

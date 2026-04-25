@@ -1,0 +1,27 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MWBToggle", "MWBToggle.csproj", "{AFAE4462-84E1-4DF9-9D18-A9C89313563D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MWBToggle.Tests", "MWBToggle.Tests\MWBToggle.Tests.csproj", "{C9867FDE-F7CA-4A3A-A169-23F1F96BB5CC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AFAE4462-84E1-4DF9-9D18-A9C89313563D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AFAE4462-84E1-4DF9-9D18-A9C89313563D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AFAE4462-84E1-4DF9-9D18-A9C89313563D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AFAE4462-84E1-4DF9-9D18-A9C89313563D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C9867FDE-F7CA-4A3A-A169-23F1F96BB5CC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C9867FDE-F7CA-4A3A-A169-23F1F96BB5CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C9867FDE-F7CA-4A3A-A169-23F1F96BB5CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C9867FDE-F7CA-4A3A-A169-23F1F96BB5CC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

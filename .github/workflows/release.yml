@@ -41,7 +41,7 @@ jobs:
           Set-Content MWBToggle.csproj $csproj
 
       - name: Build self-contained
-        run: dotnet publish -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
+        run: dotnet publish MWBToggle.csproj -c Release --self-contained true -r win-x64 -p:PublishSingleFile=true
 
       - name: Prepare assets
         shell: bash

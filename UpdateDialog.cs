@@ -167,7 +167,8 @@ internal sealed class UpdateDialog : Form
         "https://release-assets.githubusercontent.com/",
     };
 
-    private static bool IsAllowlisted(string url) =>
+    internal static bool IsAllowlisted(string? url) =>
+        !string.IsNullOrEmpty(url) &&
         UrlAllowlist.Any(prefix => url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>

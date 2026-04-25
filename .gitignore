@@ -4,6 +4,10 @@ obj/
 publish/
 *.exe
 *.log
+TestResults/
+[Tt]est[Rr]esults/
+coverage*.xml
+coverage*.json
 
 # User config
 MWBToggle.ini
