@@ -147,6 +147,12 @@ internal sealed class UpdateDialog : Form
         // manually below, validating each hop.
         var handler = new HttpClientHandler { AllowAutoRedirect = false };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        // Cap the in-memory response buffer for ReadAsStringAsync calls (releases
+        // JSON, SHA256SUMS body). The default ceiling is ~2 GB; tighten to 1 MB
+        // so a hostile CDN edge can't blow up the tray with an unbounded text
+        // body. Streaming downloads (DownloadFileAsync) use a separate per-write
+        // ceiling — see MaxDownloadBytes. 2026-04-25 verifier follow-up.
+        client.MaxResponseContentBufferSize = 1L * 1024 * 1024;
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(AppName, version));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         return client;
