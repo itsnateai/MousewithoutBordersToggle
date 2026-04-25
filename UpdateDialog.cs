@@ -511,12 +511,39 @@ internal sealed class UpdateDialog : Form
         }
     }
 
+    // Hard ceiling on a single download. The legitimate self-contained release
+    // is ~150 MB; 200 MB gives ~33% headroom for asset growth without giving a
+    // compromised CDN edge unbounded write authority. Without this cap, a
+    // hostile Content-Length: 50_000_000_000 (or chunked-transfer with no
+    // Content-Length at all) could fill the user's disk inside the 30s
+    // HttpClient.Timeout window before the SHA256 verify step fires.
+    internal const long MaxDownloadBytes = 200L * 1024 * 1024;
+
+    /// <summary>
+    /// True when an asserted download size is within the per-file ceiling.
+    /// Negative or zero is ALLOWED here (caller handles "no Content-Length"
+    /// separately by streaming + counting); the ceiling test is a "is this
+    /// number too big" gate, not a "is this number sane" gate.
+    /// </summary>
+    internal static bool IsAllowedDownloadSize(long bytes) =>
+        bytes <= MaxDownloadBytes;
+
     private async Task<bool> DownloadFileAsync(string url, string destPath)
     {
         using var response = await SendAllowlistedAsync(url, HttpCompletionOption.ResponseHeadersRead, _cts!.Token);
         response.EnsureSuccessStatusCode();
 
         var totalBytes = response.Content.Headers.ContentLength ?? 0;
+
+        // Header-side gate: if the server tells us up-front that the body
+        // exceeds the ceiling, fail-closed before opening the destination file.
+        if (!IsAllowedDownloadSize(totalBytes))
+        {
+            ShowError("Download too large.",
+                      $"Server reports {totalBytes:N0} bytes; max is {MaxDownloadBytes:N0}.");
+            return false;
+        }
+
         await using var contentStream = await response.Content.ReadAsStreamAsync(_cts.Token);
         await using var fileStream = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920);
 
@@ -528,6 +555,18 @@ internal sealed class UpdateDialog : Form
         {
             await fileStream.WriteAsync(buffer.AsMemory(0, read), _cts.Token);
             downloaded += read;
+
+            // Mid-stream gate: defends against chunked-transfer bodies (no
+            // Content-Length up front) that stream forever within the
+            // HttpClient.Timeout window. Header check above missed this case
+            // because totalBytes was 0.
+            if (downloaded > MaxDownloadBytes)
+            {
+                TryDelete(destPath);
+                ShowError("Download exceeded size limit.",
+                          $"Got {downloaded:N0} bytes; max is {MaxDownloadBytes:N0}.");
+                return false;
+            }
 
             if (totalBytes > 0 && !IsDisposed) BeginInvoke(() =>
             {
