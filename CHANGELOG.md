@@ -2,6 +2,12 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.14] — 2026-04-25
+
+### Security
+- **Self-update download is now capped at 200 MB.** A compromised CDN edge or hostile redirect target inside the allowlist could previously stream multi-GB of garbage to disk inside the 30-second timeout window — filling your free space well before the SHA256 verification step would have caught the mismatch. The cap fires both on the advertised `Content-Length` and inline as bytes are written, so chunked-transfer responses (which omit `Content-Length` entirely) are also caught. Real releases are ~150 MB; the 200 MB cap leaves comfortable headroom.
+- **Update integrity-check responses are now capped at 1 MB in memory.** Same threat class for RAM rather than disk: the SHA256SUMS body and releases JSON load entirely into memory via the shared `HttpClient`. The previous default ceiling was ~2 GB; the 1 MB cap is plenty for these small text bodies and prevents a hostile server from blowing up the tray with a giant text response.
+
 ## [2.5.13] — 2026-04-23
 
 ### Self-update fix
