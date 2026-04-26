@@ -17,9 +17,8 @@
     <Copyright>Copyright (c) 2026 itsNate</Copyright>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>CA1416</NoWarn>
     <!-- Flat-layout repo: MWBToggle.csproj sits at the root, so the SDK glob
          would otherwise sweep MWBToggle.Tests/**/*.cs into this assembly. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);MWBToggle.Tests/**</DefaultItemExcludes>
