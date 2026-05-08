@@ -2,6 +2,26 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.15] — 2026-05-07
+
+### Toggle reliability
+- **Independent clipboard / file-transfer hotkeys now surface errors instead of silently no-op'ing.** If the secondary hotkey fired while `settings.json` was briefly locked (PowerToys writing it, AV scanning, OneDrive sync), the previous behavior was a silent return — no log entry, no OSD, no beep — leaving you to pound the hotkey wondering if it broke. Now both per-field toggles match the combined-toggle path: a locked file shows a *"Could not read settings.json — file locked. Try again."* OSD and writes a warn line to the log.
+- **Every successful toggle now writes a log breadcrumb** — including the per-field clipboard-only and file-transfer-only toggles, which previously skipped it. Support triage stays one `tail` away regardless of which hotkey was pressed.
+- **Pause now tells you when it can't take effect.** Clicking *Pause 5 min* (or 30 min, or *Until resumed*) when `settings.json` is missing or oversized now shows an OSD explaining why, instead of silently doing nothing — the menu click would otherwise look broken.
+
+### Tray icon correctness
+- **Tray icon no longer flashes wrong-state when settings.json is mid-write.** `SyncTray` paints the icon from a regex match against `ShareClipboard` and `TransferFile` in `settings.json`. If the read landed during PowerToys' own truncate-and-rewrite window, both keys could go missing for a tick — the previous code defaulted to `false/false` and flipped the icon to red regardless of true state. Now the painter requires both keys to parse before updating; on a partial match it logs and waits for the watcher to re-fire on the settled write.
+
+### Self-update integrity
+- **The SHA256SUMS parser is now factored out and unit-tested.** The hash parser is the actual trust-decision input for self-updates (the binary is not Authenticode-signed, so SHA256SUMS is the integrity control). Tests now cover GNU-coreutils format, BSD-tag format, CRLF line endings, `*filename` binary-mode prefix, multi-entry files, prefix/suffix filename-collision, and empty/null bodies. Behavior unchanged — this closes a test-coverage gap, not a runtime bug.
+- **HTTPS scheme is now independently enforced** at the start of every update HTTP request, in addition to the existing per-hop allowlist check. Belt-and-suspenders against a future allowlist edit accidentally seeding an `http://` prefix.
+
+### Build
+- **`<EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>` is now explicit** in `MWBToggle.csproj`. The .NET 8 default is already `false`; this just pins the documented choice so a future "shrink the build" PR can't silently flip compression on (compressed single-file extractors trigger AV heuristics).
+
+### Internal
+- Stale XML doc-comment on `WriteSettingsAtomic` rewritten to reflect the actual in-place truncate-and-write design (the previous comment described the broken `.tmp + File.Replace` dance the v2.5.8 fix removed). Doc-only — no behavior change.
+
 ## [2.5.14] — 2026-04-25
 
 ### Security

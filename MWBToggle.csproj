@@ -19,6 +19,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <NoWarn>CA1416</NoWarn>
+    <!-- Compression off for the single-file bundle: AV heuristics flag compressed
+         single-file extractors (the EXE looks like a packer to Defender/CrowdStrike).
+         .NET 8 default is already false, but pin it explicitly so a future "shrink
+         the build" PR can't silently flip it. See memory feedback_tray_app_compression_off.md. -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
     <!-- Flat-layout repo: MWBToggle.csproj sits at the root, so the SDK glob
          would otherwise sweep MWBToggle.Tests/**/*.cs into this assembly. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);MWBToggle.Tests/**</DefaultItemExcludes>

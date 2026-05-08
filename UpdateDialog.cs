@@ -178,6 +178,49 @@ internal sealed class UpdateDialog : Form
         UrlAllowlist.Any(prefix => url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// Extract the hex hash for <paramref name="filename"/> from a SHA256SUMS body.
+    /// Handles GNU-coreutils format (`hexhash  filename` or `hexhash *filename`),
+    /// BSD-tag format (`SHA256 (filename) = hexhash`), CRLF line endings, multi-entry
+    /// files, and tab separators. Filename match is case-insensitive. Returns null if
+    /// no entry for the file is found. The parser is the actual trust-decision input
+    /// for self-update — it lives separately from the network code so it's testable.
+    /// </summary>
+    internal static string? ParseHashFor(string? content, string filename)
+    {
+        if (string.IsNullOrEmpty(content)) return null;
+        foreach (var rawLine in content.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r').Trim();
+            if (line.Length == 0) continue;
+
+            // BSD-tag format: SHA256 (filename) = hexhash
+            if (line.StartsWith("SHA256 (", StringComparison.OrdinalIgnoreCase))
+            {
+                int lparen = line.IndexOf('(');
+                int rparen = line.IndexOf(')');
+                int eq = line.IndexOf('=');
+                if (lparen >= 0 && rparen > lparen && eq > rparen)
+                {
+                    var name = line.Substring(lparen + 1, rparen - lparen - 1).Trim();
+                    if (name.Equals(filename, StringComparison.OrdinalIgnoreCase))
+                        return line.Substring(eq + 1).Trim();
+                }
+                continue;
+            }
+
+            // GNU-coreutils format: "hexhash  filename" or "hexhash *filename"
+            // (binary-mode emit). Tab separator also seen in the wild.
+            var parts = line.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 &&
+                parts[1].Trim().TrimStart('*').Equals(filename, StringComparison.OrdinalIgnoreCase))
+            {
+                return parts[0].Trim();
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Issue a GET and follow up to 5 redirects manually. Every hop's URL — including
     /// the initial one — is validated against <see cref="UrlAllowlist"/> before the
     /// request is sent. Throws if any hop lands off-list or if the redirect chain
@@ -189,6 +232,14 @@ internal sealed class UpdateDialog : Form
         const int maxHops = 5;
         for (int hop = 0; hop < maxHops; hop++)
         {
+            // Belt-and-suspenders: the UrlAllowlist prefixes already encode `https://`,
+            // but a future allowlist edit accidentally seeding an `http://` prefix would
+            // silently disable transport encryption. Independently enforce HTTPS here so
+            // scheme-downgrade can never happen regardless of allowlist contents.
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var validatedUri) ||
+                !validatedUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+                throw new HttpRequestException($"URL must be HTTPS: {url}");
+
             if (!IsAllowlisted(url))
                 throw new HttpRequestException($"URL not in allowlist: {url}");
 
@@ -395,18 +446,7 @@ internal sealed class UpdateDialog : Form
                         _hashFileUrl, HttpCompletionOption.ResponseContentRead, _cts!.Token);
                     hashResponse.EnsureSuccessStatusCode();
                     var hashContent = await hashResponse.Content.ReadAsStringAsync(_cts.Token);
-                    string? expectedHash = null;
-                    foreach (var line in hashContent.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        // Format: "hexhash  filename" or "hexhash *filename"
-                        var parts = line.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length == 2 &&
-                            parts[1].Trim().TrimStart('*').Equals("MWBToggle.exe", StringComparison.OrdinalIgnoreCase))
-                        {
-                            expectedHash = parts[0].Trim();
-                            break;
-                        }
-                    }
+                    string? expectedHash = ParseHashFor(hashContent, "MWBToggle.exe");
 
                     if (!string.IsNullOrEmpty(expectedHash))
                     {

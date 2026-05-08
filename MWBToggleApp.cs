@@ -473,7 +473,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             // single most useful line in the log when a user reports "the toggle
             // doesn't work." Without it the only evidence is settings.json mtime, which
             // support can't ask for easily. One line per toggle, negligible volume.
-            Logger.Info($"Toggled {(nowOn ? "ON" : "OFF")} — ShareClipboard={nowOn} TransferFile={nowOn}, wrote {_settingsPath}");
+            Logger.Info($"Toggled {(nowOn ? "ON" : "OFF")} — ShareClipboard={nowOn} TransferFile={nowOn} wrote {_settingsPath}");
 
             WaitWithMessagePump(300);
             SyncTray();
@@ -493,9 +493,13 @@ internal sealed class MWBToggleApp : ApplicationContext
     private void DoToggle() => DoToggle(confirm: true);
 
     /// <summary>
-    /// Write settings.json atomically: write to .tmp, then NTFS-atomic Replace with
-    /// backup rotation into .bak. This avoids truncate-then-write data loss on power
-    /// cuts or AV quarantines, and gives us a recoverable prior-state rollback target.
+    /// Write settings.json in-place via truncate-and-write, with a .bak copy first.
+    /// Deliberately NOT atomic File.Replace — the NTFS rename invalidates file identity
+    /// and PT MWB's FileSystemWatcher (Changed/LastWrite only) misses the change, so
+    /// the toggle would not take effect. See the implementation comment block below
+    /// and memory `reference_file_replace_fsw_regression.md` for the v2.5.2-v2.5.7
+    /// silent regression that this design prevents. Trades atomicity-against-power-cut
+    /// for the core feature actually working — worth it for a 2.5 KB file.
     /// </summary>
     private bool WriteSettingsAtomic(string json)
     {
@@ -767,11 +771,19 @@ internal sealed class MWBToggleApp : ApplicationContext
 
                 string json = File.ReadAllText(_settingsPath, Utf8NoBom);
                 var cm = ShareClipboardRegex.Match(json);
-                if (cm.Success)
-                    clipOn = cm.Groups[1].Value == "true";
                 var fm = TransferFileRegex.Match(json);
-                if (fm.Success)
-                    fileOn = fm.Groups[1].Value == "true";
+                // Only paint the icon if BOTH keys parsed. A partial match means
+                // settings.json was caught mid-write (PT truncating + rewriting),
+                // or the schema drifted; either way, default-`false` would flash
+                // a wrong red icon. Skip; the watcher will re-fire when the write
+                // settles, or DoToggle's verify step will surface a real error.
+                if (!cm.Success || !fm.Success)
+                {
+                    Logger.Warn("SyncTray regex partial match — settings.json mid-write or schema drifted; skipping icon update.");
+                    return;
+                }
+                clipOn = cm.Groups[1].Value == "true";
+                fileOn = fm.Groups[1].Value == "true";
             }
         }
         catch
@@ -841,8 +853,16 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// </summary>
     private void PauseSharing(int minutes)
     {
-        if (!File.Exists(_settingsPath)) return;
-        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
+        if (!File.Exists(_settingsPath))
+        {
+            ShowOSD("Settings file not found — check PowerToys MWB is configured.", 5000);
+            return;
+        }
+        if (new FileInfo(_settingsPath).Length > 1_000_000)
+        {
+            ShowOSD("Settings file looks corrupt (>1MB) — refusing to write.", 5000);
+            return;
+        }
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
@@ -1735,12 +1755,25 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void ToggleShareClipboard()
     {
-        if (!File.Exists(_settingsPath)) return;
-        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
+        if (!File.Exists(_settingsPath))
+        {
+            ShowOSD("Settings file not found — check PowerToys MWB is configured.", 5000);
+            return;
+        }
+        if (new FileInfo(_settingsPath).Length > 1_000_000)
+        {
+            ShowOSD("Settings file looks corrupt (>1MB) — refusing to write.", 5000);
+            return;
+        }
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
-        catch { return; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warn($"ToggleShareClipboard read: {ex.Message}");
+            ShowOSD("Could not read settings.json — file locked. Try again.", 5000);
+            return;
+        }
 
         var clipMatch = ShareClipboardRegex.Match(json);
         if (!clipMatch.Success)
@@ -1784,6 +1817,10 @@ internal sealed class MWBToggleApp : ApplicationContext
         WaitWithMessagePump(300);
         SyncTray();
         bool nowOn = !clipboardOn;
+        // Per-field breadcrumb mirrors DoToggle's format. Reflects only what changed
+        // (clipboard); TransferFile is forced OFF when clipboardOn was true (see above),
+        // otherwise unchanged.
+        Logger.Info($"Toggled clipboard {(nowOn ? "ON" : "OFF")} — ShareClipboard={nowOn} wrote {_settingsPath}");
         string stateMsg = nowOn ? "Clipboard · ON" : "Clipboard · OFF";
         if (cancelledPause) stateMsg += " · pause cancelled";
         ShowOSDState(stateMsg, nowOn);
@@ -1791,17 +1828,34 @@ internal sealed class MWBToggleApp : ApplicationContext
 
     private void ToggleTransferFile()
     {
-        if (!File.Exists(_settingsPath)) return;
-        if (new FileInfo(_settingsPath).Length > 1_000_000) return;
+        if (!File.Exists(_settingsPath))
+        {
+            ShowOSD("Settings file not found — check PowerToys MWB is configured.", 5000);
+            return;
+        }
+        if (new FileInfo(_settingsPath).Length > 1_000_000)
+        {
+            ShowOSD("Settings file looks corrupt (>1MB) — refusing to write.", 5000);
+            return;
+        }
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
-        catch { return; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warn($"ToggleTransferFile read: {ex.Message}");
+            ShowOSD("Could not read settings.json — file locked. Try again.", 5000);
+            return;
+        }
 
         // Read current states
         var clipMatch = ShareClipboardRegex.Match(json);
         var fileMatch = TransferFileRegex.Match(json);
-        if (!fileMatch.Success) return;
+        if (!fileMatch.Success)
+        {
+            ShowOSD("TransferFile not found in settings.json — run MWB at least once.", 5000);
+            return;
+        }
 
         bool clipboardOn = clipMatch.Success && clipMatch.Groups[1].Value == "true";
         bool transferOn = fileMatch.Groups[1].Value == "true";
@@ -1840,6 +1894,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         SyncTray();
         // transferOn reflects the PREVIOUS state (pre-toggle), so "nowOn" inverts it.
         bool nowOn = !transferOn;
+        Logger.Info($"Toggled file-transfer {(nowOn ? "ON" : "OFF")} — TransferFile={nowOn} wrote {_settingsPath}");
         string stateMsg = nowOn ? "File Transfer · ON" : "File Transfer · OFF";
         if (cancelledPause) stateMsg += " · pause cancelled";
         ShowOSDState(stateMsg, nowOn);
