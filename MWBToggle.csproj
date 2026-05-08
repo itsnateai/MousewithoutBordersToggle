@@ -7,6 +7,11 @@
     <ApplicationIcon>mwbtoggle.ico</ApplicationIcon>
     <AssemblyName>MWBToggle</AssemblyName>
     <RootNamespace>MWBToggle</RootNamespace>
+    <!-- Version is rewritten by .github/workflows/release.yml from GITHUB_REF_NAME at
+         build time. The shipped binary always reports the tag version, regardless of
+         the value here. Kept stale-by-design so post-ship audits don't have to bump
+         it. If you build locally with `dotnet publish` (no GH Actions), the artifact
+         will report this stale value — that's a dev-build, not a release. -->
     <Version>2.5.13</Version>
     <FileVersion>2.5.13.0</FileVersion>
     <InformationalVersion>2.5.13</InformationalVersion>

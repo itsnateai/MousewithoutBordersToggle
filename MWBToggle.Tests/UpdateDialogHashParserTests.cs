@@ -129,4 +129,51 @@ public class UpdateDialogHashParserTests
         var body = $"{Hash}  OldMWBToggle.exe\n";
         Assert.IsNull(UpdateDialog.ParseHashFor(body, Filename));
     }
+
+    // ─── Hash validation (length + hex) ──────────────────────────
+
+    [TestMethod]
+    public void Hash_NonHexChars_ReturnsNull()
+    {
+        // 64 chars but contains non-hex `xyz`. Must not be returned as the trust hash.
+        var body = $"xyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzxyzx  {Filename}\n";
+        Assert.IsNull(UpdateDialog.ParseHashFor(body, Filename));
+    }
+
+    [TestMethod]
+    public void Hash_TooShort_ReturnsNull()
+    {
+        var body = $"deadbeef  {Filename}\n";
+        Assert.IsNull(UpdateDialog.ParseHashFor(body, Filename));
+    }
+
+    [TestMethod]
+    public void Hash_TooLong_ReturnsNull()
+    {
+        // 65 chars — sneakily wrong length that survived a stale digest spec.
+        var body = $"{Hash}a  {Filename}\n";
+        Assert.IsNull(UpdateDialog.ParseHashFor(body, Filename));
+    }
+
+    [TestMethod]
+    public void BsdTag_EmptyAfterEquals_ReturnsNull()
+    {
+        var body = $"SHA256 ({Filename}) = \n";
+        Assert.IsNull(UpdateDialog.ParseHashFor(body, Filename));
+    }
+
+    [TestMethod]
+    public void NullFilename_ReturnsNull()
+    {
+        // Defense against a null-filename programming error reaching the parser.
+        var body = $"{Hash}  {Filename}\n";
+        Assert.IsNull(UpdateDialog.ParseHashFor(body, null!));
+    }
+
+    [TestMethod]
+    public void EmptyFilename_ReturnsNull()
+    {
+        var body = $"{Hash}  {Filename}\n";
+        Assert.IsNull(UpdateDialog.ParseHashFor(body, ""));
+    }
 }

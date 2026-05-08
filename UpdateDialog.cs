@@ -182,16 +182,19 @@ internal sealed class UpdateDialog : Form
     /// Handles GNU-coreutils format (`hexhash  filename` or `hexhash *filename`),
     /// BSD-tag format (`SHA256 (filename) = hexhash`), CRLF line endings, multi-entry
     /// files, and tab separators. Filename match is case-insensitive. Returns null if
-    /// no entry for the file is found. The parser is the actual trust-decision input
-    /// for self-update — it lives separately from the network code so it's testable.
+    /// no entry for the file is found OR if the parsed hash isn't a 64-char lowercase-or
+    /// -uppercase hex string (defends against malformed SHA256SUMS bodies — the parser
+    /// is the actual trust-decision input for self-update).
     /// </summary>
     internal static string? ParseHashFor(string? content, string filename)
     {
-        if (string.IsNullOrEmpty(content)) return null;
+        if (string.IsNullOrEmpty(content) || string.IsNullOrEmpty(filename)) return null;
         foreach (var rawLine in content.Split('\n'))
         {
             var line = rawLine.TrimEnd('\r').Trim();
             if (line.Length == 0) continue;
+
+            string? candidate = null;
 
             // BSD-tag format: SHA256 (filename) = hexhash
             if (line.StartsWith("SHA256 (", StringComparison.OrdinalIgnoreCase))
@@ -203,21 +206,39 @@ internal sealed class UpdateDialog : Form
                 {
                     var name = line.Substring(lparen + 1, rparen - lparen - 1).Trim();
                     if (name.Equals(filename, StringComparison.OrdinalIgnoreCase))
-                        return line.Substring(eq + 1).Trim();
+                        candidate = line.Substring(eq + 1).Trim();
                 }
-                continue;
+            }
+            else
+            {
+                // GNU-coreutils format: "hexhash  filename" or "hexhash *filename"
+                // (binary-mode emit). Tab separator also seen in the wild.
+                var parts = line.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 2 &&
+                    parts[1].Trim().TrimStart('*').Equals(filename, StringComparison.OrdinalIgnoreCase))
+                {
+                    candidate = parts[0].Trim();
+                }
             }
 
-            // GNU-coreutils format: "hexhash  filename" or "hexhash *filename"
-            // (binary-mode emit). Tab separator also seen in the wild.
-            var parts = line.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 2 &&
-                parts[1].Trim().TrimStart('*').Equals(filename, StringComparison.OrdinalIgnoreCase))
-            {
-                return parts[0].Trim();
-            }
+            if (candidate != null && IsValidSha256Hex(candidate))
+                return candidate;
         }
         return null;
+    }
+
+    // SHA-256 produces 32 bytes = 64 hex chars. Reject anything else so a malformed
+    // SHA256SUMS body (truncated, non-hex, empty after `=`) can't reach the equality
+    // compare and silently fall into the "no entry" branch by accident.
+    private static bool IsValidSha256Hex(string s)
+    {
+        if (s.Length != 64) return false;
+        foreach (var c in s)
+        {
+            bool isHex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!isHex) return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -525,7 +546,8 @@ internal sealed class UpdateDialog : Form
             if (File.Exists(oldPath))
             {
                 TryDelete(exePath);
-                try { File.Move(oldPath, exePath); } catch { }
+                try { File.Move(oldPath, exePath); }
+                catch (Exception rollbackEx) { Logger.Error($"Rollback Move failed (torn state — .old may be stranded): {rollbackEx.Message}"); }
             }
             TryDelete(newPath);
 
@@ -540,7 +562,8 @@ internal sealed class UpdateDialog : Form
             if (File.Exists(oldPath))
             {
                 TryDelete(exePath);
-                try { File.Move(oldPath, exePath); } catch { }
+                try { File.Move(oldPath, exePath); }
+                catch (Exception rollbackEx) { Logger.Error($"Rollback Move failed (torn state — .old may be stranded): {rollbackEx.Message}"); }
             }
             TryDelete(newPath);
             if (!IsDisposed) ShowVersionComparison();
@@ -550,7 +573,8 @@ internal sealed class UpdateDialog : Form
             if (File.Exists(oldPath))
             {
                 TryDelete(exePath);
-                try { File.Move(oldPath, exePath); } catch { }
+                try { File.Move(oldPath, exePath); }
+                catch (Exception rollbackEx) { Logger.Error($"Rollback Move failed (torn state — .old may be stranded): {rollbackEx.Message}"); }
             }
             TryDelete(newPath);
             if (!IsDisposed) ShowError("Update failed.", ex.Message);
@@ -778,7 +802,8 @@ internal sealed class UpdateDialog : Form
 
     private static void TryDelete(string path)
     {
-        try { if (File.Exists(path)) File.Delete(path); } catch { }
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch (Exception ex) { Logger.Warn($"TryDelete({path}): {ex.Message}"); }
     }
 
     private static string ComputeFileHash(string filePath)

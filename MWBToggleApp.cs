@@ -670,7 +670,16 @@ internal sealed class MWBToggleApp : ApplicationContext
                     _debounceTimer?.Start();
                 });
             }
-            catch { }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+            {
+                // Expected on shutdown race: handle not yet created (InvalidOperationException)
+                // or menu disposed mid-event (ObjectDisposedException). Silent return is fine.
+            }
+            catch (Exception ex)
+            {
+                // Anything else means the FSW pipeline is in trouble — log so support sees it.
+                Logger.Warn($"FSW Changed BeginInvoke: {ex.Message}");
+            }
         };
 
         // If the watcher errors (network drive disconnect, settings dir removed, etc.),
@@ -786,9 +795,16 @@ internal sealed class MWBToggleApp : ApplicationContext
                 fileOn = fm.Groups[1].Value == "true";
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return; // File locked — watcher will fire again on next write
+            // File locked or briefly inaccessible — watcher will fire again on next write.
+            // Narrowed from bare catch so surprise exceptions still surface in the log.
+            return;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"SyncTray read: {ex.Message}");
+            return;
         }
 
         // Only update tray icon when state actually changes
@@ -866,7 +882,15 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         string json;
         try { json = File.ReadAllText(_settingsPath, Utf8NoBom); }
-        catch (Exception ex) { Logger.Warn($"PauseSharing read: {ex.Message}"); return; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Mirror DoToggle/ToggleShareClipboard/ToggleTransferFile — surface the lock to
+            // the user instead of silently returning. A pause click into a locked file
+            // would otherwise look like a broken menu item.
+            Logger.Warn($"PauseSharing read: {ex.Message}");
+            ShowOSD("Could not read settings.json — file locked. Try again.", 5000);
+            return;
+        }
 
         var clipMatch = ShareClipboardRegex.Match(json);
         var fileMatch = TransferFileRegex.Match(json);

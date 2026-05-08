@@ -2,6 +2,18 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.16] — 2026-05-07
+
+### Audit follow-up
+v2.5.15 shipped post-audit fixes; the verifier-pair caught residual gaps an hour later. v2.5.16 closes them.
+
+- **`PauseSharing` now shows OSD on locked-file IOException**, matching the v2.5.15 fix in the sibling per-field toggles. The previous catch logged a warn line but returned silently — clicking Pause-5min into a locked `settings.json` looked like a broken menu item. Same OSD string as `DoToggle` so the user gets consistent feedback regardless of entry point.
+- **`UpdateDialog.ParseHashFor` now validates that the parsed value is a 64-character hex SHA-256.** Previously, a malformed `SHA256SUMS` body (`xyz  MWBToggle.exe`) would have returned the literal `xyz` to the comparison step. The downstream equality check would have failed and produced a generic "hash failed" UX, but the parser is the trust boundary — it shouldn't pass non-hash values to the comparator. 6 new tests cover non-hex chars, too-short, too-long, BSD-tag-empty-after-equals, null filename, empty filename. Test count: 44 → 50.
+- **Bare `catch { }` blocks narrowed.** Four sites swallowed all exception types, contradicting the v2.5.15 anti-silent-failure theme: FSW Changed `BeginInvoke` (now narrowed to expected `InvalidOperationException` / `ObjectDisposedException` shutdown races, with a fall-through warn for anything else); `SyncTray` read (typed catch with warn fallback); `UpdateDialog` rollback `File.Move` (logs Error on torn state — `.old` may be stranded); `TryDelete` (warn for ACL/lock failures so support has telemetry on stuck `.new`/`.old` artifacts).
+
+### Build
+- **XML comment in `MWBToggle.csproj` documents the release.yml version-rewrite contract** so future audits don't re-flag the local `<Version>2.5.13>` as a parity bust. Per `reference_audit_dimension_splitting.md`, the same false-positive HIGH was raised three times across the v2.5.15 audit cycle — the comment makes the contract auditable from the file itself.
+
 ## [2.5.15] — 2026-05-07
 
 ### Toggle reliability
