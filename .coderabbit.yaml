@@ -26,6 +26,12 @@ reviews:
     - "!**/*.ico"
     - "!**/*.exe"
     - "!screenshots/**"
+    - "!AUDIT_TASKS.md"
+    - "!AUDIT_PLAN.md"
+    - "!MASTER_BUGLIST.md"
+    - "!TODO_LIST.md"
+    - "!SCHEDULED_TASKS.md"
+    - "!ASSUMPTIONS.md"
 
   path_instructions:
     - path: "MWBToggleApp.cs"
@@ -100,6 +106,9 @@ reviews:
       - "chore: release"
       - "release v"
       - "bump version"
+      - "changelog"
+      - "release notes"
+      - "cut v"
     ignore_usernames:
       - "dependabot[bot]"
       - "release-please[bot]"
