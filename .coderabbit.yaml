@@ -23,9 +23,8 @@ reviews:
     - "!**/*.user"
     - "!**/*.suo"
     - "!**/*.pdb"
-    - "!**/*.ini"
-    - "!*.ico"
-    - "!*.exe"
+    - "!**/*.ico"
+    - "!**/*.exe"
     - "!screenshots/**"
     - "!CHANGELOG.md"
 
@@ -35,34 +34,57 @@ reviews:
         Main tray app — toggle logic, FileSystemWatcher on MWB settings.json,
         pause timers, OSD, config.
 
-        CRITICAL — settings.json writes use IN-PLACE TRUNCATE (File.Copy → .bak,
-        then File.WriteAllText on the original target). This is INTENTIONAL and
-        load-bearing — do NOT propose switching to .tmp + File.Replace. PowerToys
-        MWB's FileSystemWatcher subscribes only to Changed events with a LastWrite
-        filter and IGNORES Renamed events; File.Replace emits Renamed and the
-        feature breaks. The trade-off (loses atomic-against-mid-write-power-cut
-        for a 2.5 KB file) is deliberate. See memory reference_file_replace_fsw_regression.
+        CRITICAL — settings.json writes use IN-PLACE TRUNCATE-AND-REWRITE
+        (File.Copy → .bak, then File.WriteAllText on the original target,
+        which truncates and rewrites in place). This is INTENTIONAL and
+        load-bearing — do NOT propose switching to .tmp + File.Replace.
+        PowerToys MWB's FileSystemWatcher subscribes only to Changed events
+        with a LastWrite filter and IGNORES Renamed events; File.Replace
+        emits Renamed and the feature breaks. The trade-off (loses
+        atomic-against-mid-write-power-cut for a 2.5 KB file) is deliberate.
+        See memory reference_file_replace_fsw_regression for the full writeup.
 
-        Pause logic uses absolute UTC time + SystemEvents.PowerModeChanged so it
-        survives sleep — do not change to relative timers.
+        Pause logic uses absolute UTC time + SystemEvents.PowerModeChanged so
+        it survives sleep — do not change to relative timers.
     - path: "GlobalHotkey.cs"
       instructions: |
         Win32 RegisterHotKey wrapper using MOD_NOREPEAT. AHK-style hotkey string
-        parsing. Flag any change that drops MOD_NOREPEAT (would re-fire on key-hold)
-        or that breaks the AHK-string compat layer.
+        parsing. Flag any change that drops MOD_NOREPEAT (would re-fire on
+        key-hold) or that breaks the AHK-string compat layer.
     - path: "HookHotkeyCapture.cs"
       instructions: |
-        WH_KEYBOARD_LL low-level keyboard hook used ONLY by the hotkey picker UI
-        to swallow the chosen combo while capturing. The hook is installed for the
-        capture window's lifetime and uninstalled on close. Do NOT flag the global
-        hook as a privacy/security concern — it is scoped to the capture dialog.
+        WH_KEYBOARD_LL low-level keyboard hook used ONLY by the hotkey picker
+        UI to swallow the chosen combo while capturing. Hook is installed for
+        the capture window's lifetime and uninstalled on close. Do NOT flag
+        the global hook as a privacy/security concern — it is scoped to the
+        capture dialog. DO flag: hook callbacks that throw (must never throw),
+        missing UnhookWindowsHookEx on early-return paths, GCHandle leaks on
+        the delegate.
+    - path: "OsdForm.cs"
+      instructions: |
+        Discreet dark OSD bubble pinned above the system tray with a colored
+        state dot. Uses DllImport for FindWindow / GetWindowRect /
+        DwmGetWindowAttribute to position relative to the tray. Static GDI
+        resources (font, brushes) are intentional — do NOT change to per-show
+        allocation (would leak GDI handles). Primary monitor only.
     - path: "UpdateDialog.cs"
       instructions: |
         Self-update with SHA256 verification and a torn-state recovery scheme:
         .new (download) → .old (rename current) → rename .new into place →
         relaunch → on successful startup write .ok sentinel → next launch
-        deletes .old. Flag any change that breaks the .ok-sentinel ordering or
-        skips SHA256 verification.
+        deletes .old. Flag any change that breaks the .ok-sentinel ordering
+        or skips SHA256 verification.
+    - path: "TrayIconPromoter.cs"
+      instructions: |
+        Win11 tray-icon promoter — sets the per-icon registry flag (under
+        HKCU\\Control Panel\\NotifyIconSettings) so the tray icon shows in
+        the taskbar instead of the overflow flyout. Reads/writes registry,
+        no privileged operations. Flag any registry path that escapes HKCU
+        or any write outside NotifyIconSettings.
+    - path: "MWBToggle.Tests/**"
+      instructions: |
+        Test project. Tests must be deterministic and must NOT modify the
+        real PowerToys settings.json — use the fake settings-path helpers.
     - path: "**/*.cs"
       instructions: |
         C# / .NET 8 / WinForms. Tray app — WinForms is the chosen UI stack.
@@ -74,6 +96,15 @@ reviews:
     enabled: true
     drafts: false
     auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 3
+    ignore_title_keywords:
+      - "chore: release"
+      - "release v"
+      - "bump version"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "release-please[bot]"
+      - "github-actions[bot]"
     base_branches:
       - "main"
 
@@ -85,6 +116,8 @@ reviews:
     markdownlint:
       enabled: true
     yamllint:
+      enabled: true
+    semgrep:
       enabled: true
 
 chat:
