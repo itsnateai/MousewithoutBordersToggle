@@ -26,7 +26,6 @@ reviews:
     - "!**/*.ico"
     - "!**/*.exe"
     - "!screenshots/**"
-    - "!CHANGELOG.md"
 
   path_instructions:
     - path: "MWBToggleApp.cs"
