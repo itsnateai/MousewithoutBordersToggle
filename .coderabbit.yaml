@@ -1,0 +1,91 @@
+# CodeRabbit configuration — schema: https://docs.coderabbit.ai/reference/yaml-template
+language: "en-US"
+
+tone_instructions: >-
+  Mouse Without Borders toggle tray app. Modifies MWB settings.json via in-place
+  truncate (NOT File.Replace — load-bearing for PowerToys' FileSystemWatcher).
+  Focus on file-write atomicity, IOException recovery, and pause correctness.
+
+reviews:
+  profile: "chill"
+  poem: false
+  collapse_walkthrough: true
+  changed_files_summary: true
+  high_level_summary: true
+  sequence_diagrams: false
+  assess_linked_issues: true
+  related_issues: true
+
+  path_filters:
+    - "!bin/**"
+    - "!obj/**"
+    - "!publish/**"
+    - "!**/*.user"
+    - "!**/*.suo"
+    - "!**/*.pdb"
+    - "!**/*.ini"
+    - "!*.ico"
+    - "!*.exe"
+    - "!screenshots/**"
+    - "!CHANGELOG.md"
+
+  path_instructions:
+    - path: "MWBToggleApp.cs"
+      instructions: |
+        Main tray app — toggle logic, FileSystemWatcher on MWB settings.json,
+        pause timers, OSD, config.
+
+        CRITICAL — settings.json writes use IN-PLACE TRUNCATE (File.Copy → .bak,
+        then File.WriteAllText on the original target). This is INTENTIONAL and
+        load-bearing — do NOT propose switching to .tmp + File.Replace. PowerToys
+        MWB's FileSystemWatcher subscribes only to Changed events with a LastWrite
+        filter and IGNORES Renamed events; File.Replace emits Renamed and the
+        feature breaks. The trade-off (loses atomic-against-mid-write-power-cut
+        for a 2.5 KB file) is deliberate. See memory reference_file_replace_fsw_regression.
+
+        Pause logic uses absolute UTC time + SystemEvents.PowerModeChanged so it
+        survives sleep — do not change to relative timers.
+    - path: "GlobalHotkey.cs"
+      instructions: |
+        Win32 RegisterHotKey wrapper using MOD_NOREPEAT. AHK-style hotkey string
+        parsing. Flag any change that drops MOD_NOREPEAT (would re-fire on key-hold)
+        or that breaks the AHK-string compat layer.
+    - path: "HookHotkeyCapture.cs"
+      instructions: |
+        WH_KEYBOARD_LL low-level keyboard hook used ONLY by the hotkey picker UI
+        to swallow the chosen combo while capturing. The hook is installed for the
+        capture window's lifetime and uninstalled on close. Do NOT flag the global
+        hook as a privacy/security concern — it is scoped to the capture dialog.
+    - path: "UpdateDialog.cs"
+      instructions: |
+        Self-update with SHA256 verification and a torn-state recovery scheme:
+        .new (download) → .old (rename current) → rename .new into place →
+        relaunch → on successful startup write .ok sentinel → next launch
+        deletes .old. Flag any change that breaks the .ok-sentinel ordering or
+        skips SHA256 verification.
+    - path: "**/*.cs"
+      instructions: |
+        C# / .NET 8 / WinForms. Tray app — WinForms is the chosen UI stack.
+        Do NOT flag use of regex-based JSON edit on settings.json — preserving
+        the user's MWB JSON formatting and comments is intentional (a real
+        JSON parse + reserialize would normalize formatting and break round-trip).
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    base_branches:
+      - "main"
+
+  tools:
+    gitleaks:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+
+chat:
+  auto_reply: true
