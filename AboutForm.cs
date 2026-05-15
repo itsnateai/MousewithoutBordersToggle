@@ -23,6 +23,13 @@ internal sealed class AboutForm : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
+        // Pin design baseline to 96 DPI BEFORE setting AutoScaleMode so every
+        // Size/Point literal below is interpreted as 96-DPI design pixels
+        // regardless of which monitor first realizes this form. Without this,
+        // the form gets baseline-shifted on 125%/150% laptops and button
+        // bottom borders / label descenders clip.
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(300, 245);
 
         var titleLabel = new Label

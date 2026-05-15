@@ -2,6 +2,24 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.17] — 2026-05-14
+
+### Fixed — display scaling on 125%+ monitors
+
+About, Update, hotkey-picker, post-update-toast, and OSD dialogs now render correctly at 125%, 150%, and 175% Windows display scale. Previously, no form in the project declared DPI awareness at any layer — every dialog inherited the WinForms default `AutoScaleMode.Font` with no `AutoScaleDimensions` pin, so on a 125%/150% laptop dialogs silently double-scaled or top-pinned their text on first show: button bottom borders disappeared, the OSD pill's text shifted toward its top edge as font height grew, and the hotkey-picker dialog clipped both labels and buttons.
+
+The fix aligns five layers:
+
+- **`app.manifest`** (new) declares `PerMonitorV2` DPI awareness + Win10/11 supportedOS — read by the OS loader before any managed code runs.
+- **`MWBToggle.csproj`** gains `<ApplicationManifest>app.manifest</ApplicationManifest>`, `<ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>`, and `<ApplicationDefaultFont>Segoe UI, 9pt</ApplicationDefaultFont>` so the source-generated `ApplicationConfiguration.Initialize()` emits `SetHighDpiMode(PerMonitorV2)` instead of the default `SystemAware`.
+- **Every Form subclass** (`AboutForm`, `UpdateDialog`, `OsdForm`) sets `AutoScaleDimensions = new SizeF(96F, 96F)` *before* `AutoScaleMode = AutoScaleMode.Dpi`. The order matters: WinForms snapshots `AutoScaleDimensions` at the moment `AutoScaleMode` is set, so flipping the order leaves the baseline at whatever the first-realized monitor reported.
+- **Anonymous inline Forms** also got the pin pair: the hotkey-picker dialog in `MWBToggleApp.PromptForHotkey` and the post-update toast in `UpdateDialog.ShowUpdateToast`. (SyncthingPause v3.0.1 caught the same anonymous-toast pattern.)
+- **OSD pill height + text Y position are now DPI-aware.** The pill was hardcoded `h = 28` and `OnPaint` drew text at `y = 5` — fine at 100% scale where 9pt Segoe UI renders ~15px, but at 175% scale the rendered text is ~26px and the hardcoded 28px pill clipped descenders while the y=5 anchor left both glyphs top-pinned. Height now derives from the measured label as `Math.Max(28, _labelSize.Height + 10)`, and OnPaint vertically centres the dot + text via the cached label size.
+
+Two post-Show button reassignments in `UpdateDialog` (winget-managed and "you're on the latest version" branches) were using literal `Size(64, 26)` and `Point(_, 112)` — these bypass the AutoScale walk and stay at design-pixel dimensions even when the rest of the dialog has scaled larger. Both call sites now wrap the literals in `LogicalToDeviceUnits()` so the OK button stays proportional at any scale.
+
+Honest framing: v2.5.16 was the prior LTR — fully audited, but for content correctness and error handling, not visual rendering on non-100% displays. If you've been running MWBToggle on a Windows 11 laptop at 125% or higher scale (the default for most 2024+ laptops) and any dialog or OSD looked clipped or top-aligned, this release is for you.
+
 ## [2.5.16] — 2026-05-07
 
 ### Audit follow-up

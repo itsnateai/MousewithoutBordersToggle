@@ -50,6 +50,13 @@ internal sealed class UpdateDialog : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
+        // Pin design baseline to 96 DPI BEFORE setting AutoScaleMode so every
+        // Size/Point literal below is interpreted as 96-DPI design pixels. The
+        // Form base default is AutoScaleMode.Font, which scales by Font.Height
+        // ratio and diverges from PerMonitorV2's pixel scaling on non-integer
+        // DPI ratios; switching to Dpi aligns this dialog with the rest of the app.
+        AutoScaleDimensions = new SizeF(96F, 96F);
+        AutoScaleMode = AutoScaleMode.Dpi;
         ClientSize = new Size(420, 180);
 
         _boldFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
@@ -127,12 +134,18 @@ internal sealed class UpdateDialog : Form
         _marqueeTimer = new System.Windows.Forms.Timer { Interval = 30 };
         _marqueeTimer.Tick += (_, _) =>
         {
-            const int step = 4, barW = 80;
+            // step + barW are design-pixel values; walk them through the current
+            // monitor DPI each tick so animation pace + bar width stay proportional
+            // at 125%+. Cost is two int property reads — negligible at 30 ms cadence.
+            // _progressOuter.Width and .Height are already AutoScale-walked device
+            // pixels, so they bound and size the fill directly.
+            int step = _progressOuter.LogicalToDeviceUnits(4);
+            int barW = _progressOuter.LogicalToDeviceUnits(80);
             if (_marqueeForward) _marqueePos += step; else _marqueePos -= step;
             if (_marqueePos + barW >= _progressOuter.Width) _marqueeForward = false;
             if (_marqueePos <= 0) _marqueeForward = true;
             _progressFill.Location = new Point(_marqueePos, 0);
-            _progressFill.Size = new Size(barW, 18);
+            _progressFill.Size = new Size(barW, _progressOuter.Height);
         };
 
         Shown += async (_, _) => await CheckForUpdateAsync();
@@ -297,8 +310,18 @@ internal sealed class UpdateDialog : Form
             _lblDetail.Text = "Use: winget upgrade itsnateai.MWBToggle";
             _btnAction.Visible = false;
             _btnCancel.Text = "OK";
-            _btnCancel.Size = new Size(64, 26);
-            _btnCancel.Location = new Point((ClientSize.Width - 64) / 2, 112);
+            // Post-Show reassignments bypass the AutoScale walk — raw literals
+            // here render in device pixels regardless of monitor DPI, so at
+            // 125%+ the OK button stays "100%-sized" while the rest of the
+            // dialog has scaled larger. LogicalToDeviceUnits walks the design
+            // pixel through the form's current DPI to keep the button
+            // proportional. Width must be computed first so Location can
+            // centre against it.
+            int btnW = _btnCancel.LogicalToDeviceUnits(64);
+            int btnH = _btnCancel.LogicalToDeviceUnits(26);
+            _btnCancel.Size = new Size(btnW, btnH);
+            _btnCancel.Location = new Point((ClientSize.Width - btnW) / 2,
+                                            _btnCancel.LogicalToDeviceUnits(112));
             return;
         }
 
@@ -384,7 +407,7 @@ internal sealed class UpdateDialog : Form
     private void ShowVersionComparison()
     {
         _marqueeTimer.Stop();
-        _progressFill.Size = new Size(0, 18);
+        _progressFill.Size = new Size(0, _progressOuter.Height);
         _progressFill.Location = new Point(0, 0);
 
         var localVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
@@ -409,9 +432,14 @@ internal sealed class UpdateDialog : Form
             _btnCancel.Text = "OK";
             // Shrink the OK button for this acknowledgment-only state — a large
             // Cancel-sized button makes the simple "you're up to date" popup feel
-            // heavier than it needs to be. Re-center inside the 420-wide dialog.
-            _btnCancel.Size = new Size(64, 26);
-            _btnCancel.Location = new Point((ClientSize.Width - 64) / 2, 112);
+            // heavier than it needs to be. LogicalToDeviceUnits keeps it
+            // proportional at 125%+ (see winget-managed branch above for the
+            // post-Show-bypasses-AutoScale rationale).
+            int btnW = _btnCancel.LogicalToDeviceUnits(64);
+            int btnH = _btnCancel.LogicalToDeviceUnits(26);
+            _btnCancel.Size = new Size(btnW, btnH);
+            _btnCancel.Location = new Point((ClientSize.Width - btnW) / 2,
+                                            _btnCancel.LogicalToDeviceUnits(112));
         }
     }
 
@@ -643,7 +671,8 @@ internal sealed class UpdateDialog : Form
                 if (IsDisposed) return;
                 int pct = (int)(downloaded * 100 / totalBytes);
                 _progressFill.Size = new Size(
-                    (int)(_progressOuter.Width * downloaded / totalBytes), 18);
+                    (int)(_progressOuter.Width * downloaded / totalBytes),
+                    _progressOuter.Height);
                 var dlMB = downloaded / (1024.0 * 1024.0);
                 var totalMB = totalBytes / (1024.0 * 1024.0);
                 _lblDetail.Text = totalMB < 1
@@ -683,7 +712,12 @@ internal sealed class UpdateDialog : Form
         _lblDetail.Text = detail;
         _btnAction.Visible = false;
         _btnCancel.Text = "OK";
-        _btnCancel.Location = new Point(170, 112);
+        // Centre the lone OK button at runtime device pixels — _btnCancel.Width
+        // is already AutoScale-walked from its constructor Size, and Y must be
+        // scaled from the design literal 112 to keep its position proportional
+        // at 125%+ (post-Show raw literals bypass the AutoScale walk).
+        _btnCancel.Location = new Point((ClientSize.Width - _btnCancel.Width) / 2,
+                                        _btnCancel.LogicalToDeviceUnits(112));
     }
 
     // ─── Static Helpers (called from Program.cs) ────────────────
@@ -761,6 +795,14 @@ internal sealed class UpdateDialog : Form
 
             var toast = new Form
             {
+                // Pin design baseline to 96 DPI BEFORE AutoScaleMode so the
+                // Padding literal below scales correctly on 125%+ monitors.
+                // Without this, the toast inherits the Form default
+                // AutoScaleMode.Font and the Padding lands at first-realized-monitor
+                // DPI pixels — same regression SyncthingPause v3.0.1 R3 caught
+                // in its post-update toast.
+                AutoScaleDimensions = new SizeF(96F, 96F),
+                AutoScaleMode = AutoScaleMode.Dpi,
                 FormBorderStyle = FormBorderStyle.None,
                 ShowInTaskbar = false,
                 TopMost = true,

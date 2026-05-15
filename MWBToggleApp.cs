@@ -1421,6 +1421,12 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         using var form = new Form
         {
+            // Pin design baseline to 96 DPI BEFORE AutoScaleMode so the
+            // ClientSize + child Size/Point literals below scale correctly on
+            // 125%+ monitors. Without this, the picker inherits the Form
+            // default AutoScaleMode.Font and clips controls on non-100% scale.
+            AutoScaleDimensions = new SizeF(96F, 96F),
+            AutoScaleMode = AutoScaleMode.Dpi,
             Text = title,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
