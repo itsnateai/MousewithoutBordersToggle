@@ -23,15 +23,23 @@ internal sealed class OsdForm : Form
     // Re-measured each Show* so it tracks the current text + DPI.
     private Size _labelSize;
 
-    // Discreet palette — softened from the original high-contrast variant.
-    // Regular weight (not semibold), slightly warmer greys, muted accent dots.
+    // Discreet palette — pill bg uses Theme.HighlightBg so the OSD reads as an
+    // ELEVATED surface (slightly distinct from the form bg) in both dark and
+    // light modes. Theme.* values are captured here at first class touch, so
+    // Theme.Initialize() MUST have run before OsdForm is constructed (the
+    // MWBToggleApp ctor enforces this by deferring `new OsdForm()` until after
+    // Theme.Initialize).
+    //
+    // State dots keep their semantic colour (green=ON, red/peach=OFF, dim=Info).
+    // Theme.AccentGreen and Theme.AccentWarn already shift per palette to keep
+    // WCAG-AA contrast against their respective backgrounds.
     private static readonly Font s_dotFont = new("Segoe UI", 9f);
     private static readonly Font s_labelFont = new("Segoe UI", 9f);
-    private static readonly SolidBrush s_bgBrush = new(Color.FromArgb(0x24, 0x24, 0x26));
-    private static readonly SolidBrush s_textBrush = new(Color.FromArgb(0xC8, 0xC8, 0xCC));
-    private static readonly SolidBrush s_onDotBrush = new(Color.FromArgb(0x4C, 0xB8, 0x74));   // muted green
-    private static readonly SolidBrush s_offDotBrush = new(Color.FromArgb(0xCC, 0x5A, 0x5A));  // muted red
-    private static readonly SolidBrush s_infoDotBrush = new(Color.FromArgb(0x80, 0x80, 0x84)); // neutral gray
+    private static readonly SolidBrush s_bgBrush = new(Theme.HighlightBg);
+    private static readonly SolidBrush s_textBrush = new(Theme.FgColor);
+    private static readonly SolidBrush s_onDotBrush = new(Theme.AccentGreen);
+    private static readonly SolidBrush s_offDotBrush = new(Theme.AccentWarn);
+    private static readonly SolidBrush s_infoDotBrush = new(Theme.DimColor);
 
     private const string DotChar = "\u25CF"; // ●
 
@@ -57,7 +65,9 @@ internal sealed class OsdForm : Form
         ShowInTaskbar = false;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        BackColor = Color.FromArgb(0x24, 0x24, 0x26);
+        // Match the pill-fill brush so a one-frame flash before OnPaint runs
+        // doesn't show through as system grey.
+        BackColor = Theme.HighlightBg;
         // Pin design baseline to 96 DPI BEFORE setting AutoScaleMode. SetBounds()
         // below bypasses the AutoScale walk for the form chrome itself (we
         // compute the pill dimensions imperatively from the measured text),

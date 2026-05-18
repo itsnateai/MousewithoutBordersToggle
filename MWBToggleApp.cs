@@ -55,6 +55,11 @@ internal sealed class MWBToggleApp : ApplicationContext
     // ── Configuration (defaults, overridden by MWBToggle.ini) ──────────────
     private string _hotkey = "#^+f";         // Win+Ctrl+Shift+F (fresh-install default)
     private string _fileTransferHotkey = ""; // empty = unbound
+    // "System" (default — follow Windows), "Dark", or "Light". Unknown values
+    // resolve to System via Theme.ResolveIsDark. Affects window chrome only
+    // (About, hotkey picker, Update dialog, OSD, context menu) — tray icons
+    // are colour-coded green/red and don't need theme-swapped variants.
+    private string _themeMode = "System";
     private readonly string _settingsPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         @"Microsoft\PowerToys\MouseWithoutBorders\settings.json");
@@ -121,7 +126,16 @@ internal sealed class MWBToggleApp : ApplicationContext
     private string _configDir = null!; // Resolved in LoadConfig()
 
     // ── OSD tooltip (discreet, pinned above the system tray) ──────────────
-    private readonly OsdForm _osd = new();
+    // Assigned in the constructor body — NOT a field initializer. Field
+    // initializers run BEFORE the constructor body, but OsdForm's static GDI
+    // brush cache captures Theme.* at first class touch. Theme.Initialize()
+    // must precede that first touch, so we hold off on `new OsdForm()` until
+    // after Theme is configured. Same pattern as CapsNumTray's _menuRenderer.
+    private readonly OsdForm _osd;
+    // Renderer for the right-click context menu — same deferred-init reason
+    // as _osd: ThemedMenuRenderer's static brush/pen cache captures Theme.*
+    // at first class touch. Theme.Initialize must precede `new ThemedMenuRenderer()`.
+    private readonly ThemedMenuRenderer _menuRenderer;
 
     // ── SyncTray state cache (avoid allocations every 5s) ────────────────
     private bool _lastSyncState;
@@ -140,11 +154,25 @@ internal sealed class MWBToggleApp : ApplicationContext
                    ?? LoadEmbeddedIcon("MWBToggle.off.ico")
                    ?? (Icon)SystemIcons.Shield.Clone();
 
-        // Load INI config (may override _hotkey, _confirmToggle, _soundFeedback)
+        // Load INI config (may override _hotkey, _confirmToggle, _soundFeedback, _themeMode)
         LoadConfig();
 
+        // Resolve theme from saved pref + OS state, then lock the palette in
+        // BEFORE OsdForm + ThemedMenuRenderer are constructed (their static
+        // GDI caches capture Theme.* at first class touch). Tray icons are
+        // colour-coded (green/red) and don't follow this — they look fine on
+        // either taskbar without theme-swapped variants.
+        Theme.Initialize(Theme.ResolveIsDark(_themeMode));
+        _osd = new OsdForm();
+        _menuRenderer = new ThemedMenuRenderer();
+
         // ── Build context menu ─────────────────────────────────────────────
-        _menu = new ContextMenuStrip();
+        _menu = new ContextMenuStrip
+        {
+            Renderer = _menuRenderer,
+            BackColor = Theme.BgColor,
+            ForeColor = Theme.FgColor,
+        };
 
         // Title bar — click opens About
         var titleItem = new ToolStripMenuItem($"MWBToggle v{Version}", null, (_, _) => ShowAbout());
@@ -157,6 +185,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         // disabled greyed subtitle showing the actual combo. Keeps the submenu narrow
         // (width = max of title/subtitle) instead of title + ": " + subtitle on one line.
         var hotkeysMenu = new ToolStripMenuItem("Hotkeys");
+        ThemeDropDown(hotkeysMenu);
         if (hotkeysMenu.DropDown is ToolStripDropDownMenu hd)
         {
             hd.ShowImageMargin = false;
@@ -208,6 +237,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         _pause30 = new ToolStripMenuItem("30 minutes", null, (s, _) => TogglePause(s, 30));
         _pauseUnlimited = new ToolStripMenuItem("Until resumed", null, (s, _) => TogglePause(s, 0));
         var pauseItem = new ToolStripMenuItem("Pause Sharing");
+        ThemeDropDown(pauseItem);
         pauseItem.DropDownItems.AddRange(new ToolStripItem[] { _pause5, _pause30, _pauseUnlimited });
         _menu.Items.Add(pauseItem);
 
@@ -215,6 +245,7 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         // PowerToys submenu — slim: kill the wide image margin, keep the check column
         var powerToysMenu = new ToolStripMenuItem("PowerToys");
+        ThemeDropDown(powerToysMenu);
         if (powerToysMenu.DropDown is ToolStripDropDownMenu pd)
         {
             pd.ShowImageMargin = false;
@@ -349,12 +380,50 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Deferred to the first message-loop tick so the OSD form has a chance to paint
         // (showing it mid-constructor misses the first WM_PAINT cycle and the user sees
         // nothing). Must also run after _pauseTimer + PowerModeChanged + SyncTray.
+        string[] cliArgs = Environment.GetCommandLineArgs();
+        bool afterThemeRestart = cliArgs.Any(a =>
+            string.Equals(a, "--after-theme-restart", StringComparison.OrdinalIgnoreCase));
+        bool afterUpdate = cliArgs.Any(a =>
+            string.Equals(a, "--after-update", StringComparison.OrdinalIgnoreCase));
         var restoreTimer = new System.Windows.Forms.Timer { Interval = 1 };
         restoreTimer.Tick += (s, _) =>
         {
             restoreTimer.Stop();
             restoreTimer.Dispose();
             RestorePauseDeadlineOnStartup();
+            if (afterThemeRestart)
+            {
+                // Brief delay so the OSD lands AFTER any pause-restore OSD has cleared.
+                // 800 ms is generous — RestorePauseDeadlineOnStartup's OSD (if any)
+                // shows for 3 s by default, but the explicit theme confirmation is
+                // higher-signal so we let it overwrite.
+                var themeOsdTimer = new System.Windows.Forms.Timer { Interval = 800 };
+                themeOsdTimer.Tick += (_, _) =>
+                {
+                    themeOsdTimer.Stop();
+                    themeOsdTimer.Dispose();
+                    // User may have right-clicked → Exit within the 800ms window,
+                    // in which case the message pump is still draining and the
+                    // tick can land after Dispose(). Skip the OSD rather than
+                    // touch a disposed form. WinForms Timer is finalizer-managed
+                    // so the SetTimer/KillTimer pair gets cleaned up by GC.
+                    if (_disposed) return;
+                    ShowOSD($"Theme applied · {_themeMode}", 2500);
+                };
+                themeOsdTimer.Start();
+            }
+            // If both flags are present (pathological — would only happen if a
+            // theme restart races mid-update, or a user manually launches with
+            // both), let the theme-applied OSD take precedence and skip the
+            // update toast. Theme is the more recent intentional action; the
+            // user already knows they updated.
+            if (afterUpdate && !afterThemeRestart)
+            {
+                // Moved out of Program.cs Main so the toast can inherit the user's
+                // active theme — Theme.Initialize ran above in this constructor,
+                // and ShowUpdateToast captures Theme.* at paint time.
+                UpdateDialog.ShowUpdateToast();
+            }
         };
         restoreTimer.Start();
 
@@ -1433,9 +1502,15 @@ internal sealed class MWBToggleApp : ApplicationContext
             MinimizeBox = false,
             StartPosition = FormStartPosition.CenterScreen,
             TopMost = true,
+            BackColor = Theme.BgColor,
+            ForeColor = Theme.FgColor,
             ClientSize = new Size(360, 170),
             KeyPreview = true
         };
+        // DWM dark titlebar must be applied AFTER handle creation but BEFORE
+        // the first NC-paint. HandleCreated fires synchronously inside ShowDialog
+        // before the form becomes visible, so wiring here is the canonical hook.
+        form.HandleCreated += (_, _) => Theme.ApplyTitleBarMode(form.Handle);
 
         var label = new Label
         {
@@ -1443,7 +1518,9 @@ internal sealed class MWBToggleApp : ApplicationContext
             AutoSize = false,
             Size = new Size(340, 38),
             Location = new Point(10, 10),
-            TextAlign = ContentAlignment.MiddleCenter
+            TextAlign = ContentAlignment.MiddleCenter,
+            ForeColor = Theme.FgColor,
+            BackColor = Theme.BgColor,
         };
         form.Controls.Add(label);
 
@@ -1454,6 +1531,11 @@ internal sealed class MWBToggleApp : ApplicationContext
         // that combo and statusLabel becomes a validation message (green/red).
         // Separating the two avoids the initial duplicate where both labels showed
         // the same "Current: X" text.
+        // Semibold preview font tracked locally so it's disposed when the
+        // `using var form` goes out of scope. Without an explicit Dispose hook,
+        // Control.Font assignment leaks the GDI handle even after the form
+        // disposes (WinForms doesn't auto-dispose Control.Font).
+        var previewFont = new Font("Segoe UI Semibold", 10f);
         var previewLabel = new Label
         {
             Text = "Preview: —",
@@ -1461,9 +1543,12 @@ internal sealed class MWBToggleApp : ApplicationContext
             Size = new Size(340, 22),
             Location = new Point(10, 55),
             TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font("Segoe UI Semibold", 10f)
+            Font = previewFont,
+            ForeColor = Theme.FgColor,
+            BackColor = Theme.BgColor,
         };
         form.Controls.Add(previewLabel);
+        form.FormClosed += (_, _) => previewFont.Dispose();
 
         var statusLabel = new Label
         {
@@ -1472,7 +1557,8 @@ internal sealed class MWBToggleApp : ApplicationContext
             Size = new Size(340, 20),
             Location = new Point(10, 82),
             TextAlign = ContentAlignment.MiddleCenter,
-            ForeColor = Color.DimGray
+            ForeColor = Theme.DimColor,
+            BackColor = Theme.BgColor,
         };
         form.Controls.Add(statusLabel);
 
@@ -1496,7 +1582,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             Enabled = currentAhk.Length > 0,
             AccessibleName = "Remove the current hotkey binding"
         } : null;
-        if (unbindBtn != null) form.Controls.Add(unbindBtn);
+        if (unbindBtn != null) { ThemePickerButton(unbindBtn); form.Controls.Add(unbindBtn); }
 
         var setBtn = new Button
         {
@@ -1506,6 +1592,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             Enabled = false,
             AccessibleName = "Commit the previewed hotkey"
         };
+        ThemePickerButton(setBtn);
         form.Controls.Add(setBtn);
 
         var cancelBtn = new Button
@@ -1515,6 +1602,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             Location = new Point(btnX(allowUnbind ? 2 : 1), btnY),
             AccessibleName = "Close without changing the binding"
         };
+        ThemePickerButton(cancelBtn);
         form.Controls.Add(cancelBtn);
         form.CancelButton = cancelBtn;
         form.AcceptButton = setBtn;
@@ -1561,7 +1649,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             if (IsWindowsReservedCombo(ahk))
             {
                 statusLabel.Text = "Windows reserves this combo — it cannot be overridden.";
-                statusLabel.ForeColor = Color.Firebrick;
+                statusLabel.ForeColor = Theme.AccentWarn;
                 setBtn.Enabled = false;
                 previewOk = false;
                 return;
@@ -1571,21 +1659,21 @@ internal sealed class MWBToggleApp : ApplicationContext
             if (collisionMsg != null)
             {
                 statusLabel.Text = collisionMsg;
-                statusLabel.ForeColor = Color.Firebrick;
+                statusLabel.ForeColor = Theme.AccentWarn;
                 setBtn.Enabled = false;
                 previewOk = false;
             }
             else if (!GlobalHotkey.CanRegister(ahk))
             {
                 statusLabel.Text = "Reserved by Windows or another app — try a different combo.";
-                statusLabel.ForeColor = Color.Firebrick;
+                statusLabel.ForeColor = Theme.AccentWarn;
                 setBtn.Enabled = false;
                 previewOk = false;
             }
             else
             {
                 statusLabel.Text = "Ready — click Set (or press Enter) to bind.";
-                statusLabel.ForeColor = Color.SeaGreen;
+                statusLabel.ForeColor = Theme.AccentGreen;
                 setBtn.Enabled = true;
                 previewOk = true;
                 // Move focus off Unbind (which had default tab focus while Set was
@@ -1605,7 +1693,7 @@ internal sealed class MWBToggleApp : ApplicationContext
             if (!hookInstalled)
             {
                 statusLabel.Text = "Note: global hook unavailable — taken hotkeys may trigger their owning app.";
-                statusLabel.ForeColor = Color.DarkOrange;
+                statusLabel.ForeColor = Theme.AccentWarn;
             }
         };
         form.FormClosed += (_, _) =>
@@ -1717,6 +1805,102 @@ internal sealed class MWBToggleApp : ApplicationContext
             : new[] { ("Hotkey", _hotkey) };
         SaveConfig(toSave);
         ShowOSD("Hotkey · " + HotkeyToReadable(_hotkey));
+    }
+
+    /// <summary>
+    /// Apply themed colours to a submenu's DropDown. The renderer cascades from
+    /// the parent ContextMenuStrip automatically, but BackColor + ForeColor don't
+    /// — they have to be set per ToolStripDropDown for the drop-shadow / scroll
+    /// arrows on long submenus to inherit our palette instead of system defaults.
+    /// </summary>
+    private static void ThemeDropDown(ToolStripDropDownItem item)
+    {
+        item.DropDown.BackColor = Theme.BgColor;
+        item.DropDown.ForeColor = Theme.FgColor;
+    }
+
+    /// <summary>
+    /// Apply Theme colours + FlatStyle to a Button inside the hotkey picker
+    /// (or any other inline-constructed dialog). Without explicit hover/pressed
+    /// colors, FlatStyle.Flat falls back to SystemColors.ButtonHighlight on
+    /// hover — a light grey that flashes against the dark palette every time
+    /// the user mouses over a button.
+    /// </summary>
+    private static void ThemePickerButton(Button btn)
+    {
+        btn.FlatStyle = FlatStyle.Flat;
+        btn.ForeColor = Theme.FgColor;
+        btn.BackColor = Theme.BgColor;
+        btn.FlatAppearance.BorderColor = Theme.DividerColor;
+        btn.FlatAppearance.MouseOverBackColor = Theme.HighlightBg;
+        btn.FlatAppearance.MouseDownBackColor = Theme.EditBgColor;
+    }
+
+    /// <summary>
+    /// Persist the chosen theme mode and try to auto-restart so the new palette
+    /// takes effect immediately. Theme is restart-to-apply because OsdForm and
+    /// ThemedMenuRenderer captured Theme.* in static brush caches at first class
+    /// load — a live swap would leave a mixed palette. Called by AboutForm when
+    /// the user changes the Theme dropdown.
+    /// </summary>
+    internal void ApplyThemeMode(string mode)
+    {
+        // Canonicalise so the dropdown's case-sensitive IndexOf works next launch
+        // even if a hand-edited INI later sets `themeMode=dark`.
+        string canon = mode.Equals("Dark", StringComparison.OrdinalIgnoreCase) ? "Dark"
+                     : mode.Equals("Light", StringComparison.OrdinalIgnoreCase) ? "Light"
+                     : "System";
+        if (canon == _themeMode) return; // no change
+
+        _themeMode = canon;
+        SaveConfig(new[] { ("ThemeMode", canon) });
+
+        if (TryAutoRestartForTheme())
+            return; // about to exit; replacement process shows confirmation OSD
+
+        // Auto-restart fell through (no ProcessPath, Process.Start refused) —
+        // leave the user with a clear "restart yourself" message instead of
+        // a silent "saved" that won't visibly do anything.
+        ShowOSD("Theme saved — restart MWBToggle to apply.", 5000);
+    }
+
+    /// <summary>
+    /// Spawn a replacement process with --after-theme-restart, then call
+    /// Application.Exit on success. SaveConfig has already run by the time
+    /// this is called, so the new process loads the new ThemeMode on startup.
+    /// Order matters: spawn BEFORE exit. If Process.Start throws (locked exe,
+    /// AV scan, missing exe path), return false and ApplyThemeMode falls back
+    /// to the manual-restart OSD — the user is never left with no tray.
+    /// </summary>
+    private static bool TryAutoRestartForTheme()
+    {
+        var exePath = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exePath))
+        {
+            Logger.Warn("MWBToggle: theme auto-restart skipped — Environment.ProcessPath was null/empty");
+            return false;
+        }
+        try
+        {
+            // nosemgrep: gitlab.security_code_scan.SCS0001-1 -- exePath is Environment.ProcessPath (our own executable, not user-supplied)
+            using var p = Process.Start(new ProcessStartInfo(exePath)
+            {
+                Arguments = "--after-theme-restart",
+                UseShellExecute = true,
+            });
+            if (p == null)
+            {
+                Logger.Warn("MWBToggle: theme auto-restart — Process.Start returned null; staying open for manual restart");
+                return false;
+            }
+            Application.Exit();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"MWBToggle: theme auto-restart failed (err={ex.GetType().Name}: {ex.Message}) — staying open for manual restart");
+            return false;
+        }
     }
 
     /// <summary>
@@ -2030,11 +2214,12 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             // Refresh hotkey labels in case they were rebound since the form was built.
             _aboutForm.SetHotkeys(_hotkey, _fileTransferHotkey);
+            _aboutForm.SetThemeMode(_themeMode);
             _aboutForm.BringToFront();
             _aboutForm.Show();
             return;
         }
-        _aboutForm = new AboutForm(_hotkey, _fileTransferHotkey);
+        _aboutForm = new AboutForm(_hotkey, _fileTransferHotkey, _themeMode, ApplyThemeMode);
         _aboutForm.Show();
     }
 
@@ -2124,6 +2309,23 @@ internal sealed class MWBToggleApp : ApplicationContext
         val = config.Get("Settings", "SingleClickToggles");
         if (!string.IsNullOrEmpty(val))
             _singleClickToggles = val == "1" || val.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+        val = config.Get("Settings", "ThemeMode");
+        if (!string.IsNullOrEmpty(val))
+        {
+            // Case-insensitive match + canonical-case storage. The About dropdown's
+            // IndexOf is case-sensitive against {"System","Dark","Light"}, so a
+            // hand-edited `themeMode=dark` would otherwise leave the dropdown blank
+            // even though the theme is applied correctly. Storing canonical here
+            // keeps the dropdown's selection honest.
+            if (val.Equals("Dark", StringComparison.OrdinalIgnoreCase)) _themeMode = "Dark";
+            else if (val.Equals("Light", StringComparison.OrdinalIgnoreCase)) _themeMode = "Light";
+            else if (val.Equals("System", StringComparison.OrdinalIgnoreCase)) _themeMode = "System";
+            else
+            {
+                Logger.Warn($"LoadConfig: unknown ThemeMode '{val}' — keeping '{_themeMode}'");
+            }
+        }
     }
 
     /// <summary>
@@ -2357,6 +2559,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         _trayIcon.Dispose();
         _menu.Dispose();
         _aboutForm?.Dispose();
+        _aboutForm = null; // belt-and-suspenders so Dispose(bool) won't re-dispose tracked fonts
         _iconOn.Dispose();
         _iconOff.Dispose();
         Application.Exit();

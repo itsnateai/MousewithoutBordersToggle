@@ -2,6 +2,30 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.18] — 2026-05-17
+
+### Added — user-selectable Dark / Light / System theme
+
+A new **Theme** dropdown in the About window (`System` / `Dark` / `Light`) themes the right-click context menu, all dialogs (About, Update, hotkey picker, post-update toast), and the OSD pill in two palettes selected at startup:
+
+- **Dark** — Catppuccin Mocha, unchanged from the implicit dark-only chrome that shipped through v2.5.17.
+- **Light** — pure white BG, near-black text (`#1E1E1E`), brand-blue accent (`#2255AA`), cornsilk focus tint (`#FFF8DC`). Replaces an interim Catppuccin Latte port that first-user feedback rejected as "hurts eyes" at dialog scale.
+
+Picking a different theme writes `[Settings].ThemeMode` to the INI, then spawns a replacement process with `--after-theme-restart` and exits. The new instance retries the single-instance mutex for 1500 ms (same handoff Program.cs already uses for `--after-update`), then surfaces a `Theme applied · X` OSD ~800 ms after the message loop comes up.
+
+**Restart-to-apply is load-bearing**, not a UX cop-out: the static GDI brush/pen caches in `ThemedMenuRenderer` (the right-click menu's `ToolStripProfessionalRenderer`) and `OsdForm` capture `Theme.*` at first class load. Theme.cs's `Initialize` runs at the top of `MWBToggleApp`'s constructor body — **before** `new OsdForm()` and `new ThemedMenuRenderer()` (both demoted from field-init to body-assignment for this reason). A live swap would leave a permanently-mixed palette.
+
+**About window layout shift to make room for the dropdown:** `Open log folder` moved from centred to right-aligned, with the new `Theme: [System|Dark|Light]` dropdown on the left of the same row. Pure layout shuffle — no semantic change.
+
+**WinForms specifics worth knowing** (caught by the two-round, twelve-agent verifier pair-set):
+
+- `_currentThemeMode` is a live field updated by both the dropdown's `SelectionChangeCommitted` lambda and `SetThemeMode`. A previous draft closed over the constructor parameter, which silently dropped re-picks after a failed auto-restart (`Process.Start` returned null and the form's cached state mismatched the persisted value).
+- `AboutForm` is `Hide()`-on-close (cached for the process lifetime), so every `new Font(...)` in the constructor is funneled through a `TrackFont` helper and released in `Dispose(bool)`. Without this, control-owned fonts leak GDI handles indefinitely (WinForms doesn't auto-dispose `Control.Font`).
+- The `--after-theme-restart` deferred-OSD timer guards with `if (_disposed) return;` before touching the OSD, so an Exit click within the 800 ms window doesn't fire into a disposed form.
+- The pathological "both `--after-update` and `--after-theme-restart` present" case is gated to favour the theme OSD: `if (afterUpdate && !afterThemeRestart) ShowUpdateToast();`. Theme is the more recent intent.
+
+Adopts the `winforms-user-selectable-theme.md` workspace template (origin: CapsNumTray v2.4.6, 2026-05-16) — MWBToggle is the second app to take it. The "v2.1.x classic" Light palette variant introduced here has been folded back into the template for future siblings that already had a pre-existing v2.x white-BG light theme.
+
 ## [2.5.17] — 2026-05-14
 
 ### Fixed — display scaling on 125%+ monitors

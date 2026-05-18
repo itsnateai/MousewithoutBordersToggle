@@ -16,6 +16,11 @@ internal static class Program
     static void Main(string[] args)
     {
         bool isAfterUpdate = args.Contains("--after-update");
+        // Theme changes also force a process restart (Theme.cs static GDI caches
+        // are write-once per process). Same mutex-handoff dance as --after-update:
+        // wait briefly for the old instance's finally-block ReleaseMutex.
+        bool isAfterThemeRestart = args.Contains("--after-theme-restart");
+        bool isRelaunch = isAfterUpdate || isAfterThemeRestart;
 
         // Self-heal the startup shortcut BEFORE the mutex check. A winget upgrade places
         // the new exe in a versioned subfolder, so the Startup-folder .lnk points at the
@@ -27,10 +32,10 @@ internal static class Program
         var mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
         {
-            if (isAfterUpdate)
+            if (isRelaunch)
             {
-                // Post-update relaunch: old instance is still shutting down.
-                // Wait for it to release the mutex before proceeding.
+                // Post-update OR post-theme-restart relaunch: old instance is still
+                // shutting down. Wait for it to release the mutex before proceeding.
                 mutex.Dispose();
                 Thread.Sleep(1500);
                 mutex = new Mutex(true, MutexName, out createdNew);
@@ -54,8 +59,10 @@ internal static class Program
 
             ApplicationConfiguration.Initialize();
 
-            if (isAfterUpdate)
-                UpdateDialog.ShowUpdateToast();
+            // ShowUpdateToast is invoked from MWBToggleApp's restoreTimer once
+            // Theme.Initialize has run, so the toast inherits the user's chosen
+            // palette instead of a hardcoded one. The 1500ms internal delay is
+            // unchanged — Application.Run starts the message pump either way.
 
             Application.Run(new MWBToggleApp());
         }

@@ -50,6 +50,8 @@ internal sealed class UpdateDialog : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true;
+        BackColor = Theme.BgColor;
+        ForeColor = Theme.FgColor;
         // Pin design baseline to 96 DPI BEFORE setting AutoScaleMode so every
         // Size/Point literal below is interpreted as 96-DPI design pixels. The
         // Form base default is AutoScaleMode.Font, which scales by Font.Height
@@ -68,6 +70,8 @@ internal sealed class UpdateDialog : Form
             Location = new Point(20, 20),
             Size = new Size(370, 24),
             Font = _boldFont,
+            ForeColor = Theme.FgColor,
+            BackColor = Theme.BgColor,
             TextAlign = ContentAlignment.MiddleCenter
         };
         Controls.Add(_lblStatus);
@@ -77,7 +81,8 @@ internal sealed class UpdateDialog : Form
             Text = "",
             Location = new Point(20, 48),
             Size = new Size(370, 20),
-            ForeColor = SystemColors.GrayText,
+            ForeColor = Theme.DimColor,
+            BackColor = Theme.BgColor,
             Font = _italicFont,
             TextAlign = ContentAlignment.MiddleCenter
         };
@@ -87,14 +92,14 @@ internal sealed class UpdateDialog : Form
         {
             Location = new Point(30, 80),
             Size = new Size(350, 18),
-            BackColor = SystemColors.ControlDark,
+            BackColor = Theme.HighlightBg,
             BorderStyle = BorderStyle.None
         };
         _progressFill = new Panel
         {
             Location = new Point(0, 0),
             Size = new Size(0, 18),
-            BackColor = Color.FromArgb(76, 175, 80)
+            BackColor = Theme.AccentGreen
         };
         _progressOuter.Controls.Add(_progressFill);
         Controls.Add(_progressOuter);
@@ -107,6 +112,7 @@ internal sealed class UpdateDialog : Form
             Visible = false,
             AccessibleName = "Download and install the latest version"
         };
+        ThemeButton(_btnAction);
         _btnAction.Click += OnActionClick;
         Controls.Add(_btnAction);
 
@@ -117,6 +123,7 @@ internal sealed class UpdateDialog : Form
             Size = new Size(80, 32),
             AccessibleName = "Cancel update check"
         };
+        ThemeButton(_btnCancel);
         _btnCancel.Click += (_, _) =>
         {
             try { _cts?.Cancel(); }
@@ -708,7 +715,7 @@ internal sealed class UpdateDialog : Form
         _marqueeTimer.Stop();
         _progressOuter.Visible = false;
         _lblStatus.Text = message;
-        _lblStatus.ForeColor = Color.FromArgb(255, 152, 0);
+        _lblStatus.ForeColor = Theme.AccentWarn;
         _lblDetail.Text = detail;
         _btnAction.Visible = false;
         _btnCancel.Text = "OK";
@@ -797,17 +804,16 @@ internal sealed class UpdateDialog : Form
             {
                 // Pin design baseline to 96 DPI BEFORE AutoScaleMode so the
                 // Padding literal below scales correctly on 125%+ monitors.
-                // Without this, the toast inherits the Form default
-                // AutoScaleMode.Font and the Padding lands at first-realized-monitor
-                // DPI pixels — same regression SyncthingPause v3.0.1 R3 caught
-                // in its post-update toast.
                 AutoScaleDimensions = new SizeF(96F, 96F),
                 AutoScaleMode = AutoScaleMode.Dpi,
                 FormBorderStyle = FormBorderStyle.None,
                 ShowInTaskbar = false,
                 TopMost = true,
                 StartPosition = FormStartPosition.Manual,
-                BackColor = Color.FromArgb(240, 240, 240),
+                // Theme.HighlightBg = elevated-pill bg, matches OsdForm's choice.
+                // Invoked from MWBToggleApp's restoreTimer after Theme.Initialize
+                // has run, so this captures the user's active palette.
+                BackColor = Theme.HighlightBg,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 Padding = new Padding(12, 8, 12, 8)
@@ -818,7 +824,8 @@ internal sealed class UpdateDialog : Form
                 Text = $"{AppName} updated to v{version}",
                 AutoSize = true,
                 Font = toastFont,
-                ForeColor = Color.FromArgb(30, 30, 30)
+                ForeColor = Theme.FgColor,
+                BackColor = Theme.HighlightBg,
             };
             toast.Controls.Add(lbl);
             toast.FormClosed += (_, _) => toastFont.Dispose();
@@ -841,6 +848,22 @@ internal sealed class UpdateDialog : Form
     }
 
     // ─── Helpers ────────────────────────────────────────────────
+
+    private static void ThemeButton(Button btn)
+    {
+        btn.FlatStyle = FlatStyle.Flat;
+        btn.ForeColor = Theme.FgColor;
+        btn.BackColor = Theme.BgColor;
+        btn.FlatAppearance.BorderColor = Theme.DividerColor;
+        btn.FlatAppearance.MouseOverBackColor = Theme.HighlightBg;
+        btn.FlatAppearance.MouseDownBackColor = Theme.EditBgColor;
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        Theme.ApplyTitleBarMode(Handle);
+    }
 
     private static void TryDelete(string path)
     {
