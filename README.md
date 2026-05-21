@@ -1,5 +1,7 @@
 # MWBToggle
 
+[![GitHub downloads](https://img.shields.io/github/downloads/itsnateai/MousewithoutBordersToggle/total?label=downloads&color=brightgreen)](https://github.com/itsnateai/MousewithoutBordersToggle/releases)
+
 *LTR — Long-Term Release · one-click self-update built in.*
 
 > **Stuck on v2.5.10–v2.5.12?** The in-app *Update* button on those builds can't reach the latest release because GitHub silently changed its asset-hosting CDN host and the older allowlist didn't know about it. One-time rescue: run `winget upgrade itsnateai.MWBToggle` or download `MWBToggle.exe` from the [latest release](https://github.com/itsnateai/MousewithoutBordersToggle/releases/latest) and replace your existing copy. v2.5.13+ self-updates normally.
