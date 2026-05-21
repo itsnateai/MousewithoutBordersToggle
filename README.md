@@ -1,6 +1,10 @@
 # MWBToggle
 
-[![GitHub downloads](https://img.shields.io/github/downloads/itsnateai/MousewithoutBordersToggle/total?label=downloads&color=brightgreen)](https://github.com/itsnateai/MousewithoutBordersToggle/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/itsnateai/MousewithoutBordersToggle)](https://github.com/itsnateai/MousewithoutBordersToggle/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-purple)](https://dotnet.microsoft.com/)
+[![Windows](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6)](https://github.com/itsnateai/MousewithoutBordersToggle)
+[![GitHub Downloads](https://img.shields.io/github/downloads/itsnateai/MousewithoutBordersToggle/total)](https://github.com/itsnateai/MousewithoutBordersToggle/releases)
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
