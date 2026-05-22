@@ -2,6 +2,22 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.19] — 2026-05-22
+
+### Changed — self-update URL allowlist now host-equality (was prefix StartsWith)
+
+`UpdateDialog.IsAllowlisted` and the two inline download/hash-file origin checks (`OnActionClick`) replace `string.StartsWith` prefix matching with `Uri.TryCreate` + host-equality, lifted from MicMute / CapsNumTray's canonical pattern (and matching SyncthingPause's `IsAllowedReleaseAssetUrl` shape). New helper `IsAllowedHost(Uri, bool allowApi)` does the work; the existing `IsAllowlisted(string?)` wraps it for `SendAllowlistedAsync` (`allowApi: true`), the inline release-asset checks call with `allowApi: false` to keep api.github.com out of the download path.
+
+The pre-existing prefix check was not subdomain-spoof-vulnerable in practice — each prefix included a trailing slash so `github.com.evil.com/...` couldn't slide through — but the upgrade is still net-better:
+
+- **Malformed-URL rejection.** `Uri.TryCreate(.., Absolute, out _)` rejects URLs with embedded whitespace, mixed-case scheme prefixes, or oddball userinfo segments that a raw `StartsWith` would have accepted. A future bug or hostile redirect serving e.g. `"  https://github.com/itsnateai/MWBToggle/..."` (leading whitespace) can't reach the GET.
+- **Path-scoped repo check.** Repo scope is now checked against `Uri.AbsolutePath` instead of a raw URL substring, so the test is robust against URL representations the prefix check never anticipated.
+- **Tighter repo scope.** github.com / api.github.com now scope to `/{GitHubRepo}/` and `/repos/{GitHubRepo}/` specifically (i.e. `/itsnateai/MousewithoutBordersToggle/`) rather than just `/itsnateai/`. A compromised redirect to another itsnateai-owned repo's release asset no longer satisfies the allowlist.
+
+CDN coverage unchanged: both `objects.githubusercontent.com` (legacy edge) and `release-assets.githubusercontent.com` (new edge) remain accepted with host-equality — GitHub continues to route release-asset downloads through both in the wild.
+
+Update flow (download → SHA256 verify → swap-in) and every other surface untouched. Bench-tested via `dotnet build -c Release` (0 warnings, 0 errors). Tests untouched.
+
 ## [2.5.18] — 2026-05-17
 
 ### Added — user-selectable Dark / Light / System theme

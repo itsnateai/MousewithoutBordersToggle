@@ -178,24 +178,37 @@ internal sealed class UpdateDialog : Form
         return client;
     }
 
-    // URL allowlist for every HTTP request (including post-redirect). The prior code
-    // only validated the first URL before `HttpClient` silently followed redirects.
-    private static readonly string[] UrlAllowlist =
+    // Host-based allowlist validated at every redirect hop via SendAllowlistedAsync.
+    // Replaces a prior `string[] UrlAllowlist + StartsWith` prefix check with
+    // Uri parsing + host-equality so malformed URLs (mixed-case scheme,
+    // embedded whitespace, weird userinfo) can't slip through, and so repo
+    // scoping on github.com / api.github.com is checked against AbsolutePath
+    // rather than the raw URL string. Pattern lifted from MicMute / CapsNumTray
+    // (host-equality canonical). v2.5.19 upgrade.
+    //
+    // GitHub release-asset CDN: both `objects.githubusercontent.com` (legacy)
+    // and `release-assets.githubusercontent.com` (new edge, rolled alongside)
+    // appear in the wild as redirect targets for github.com/.../releases/download.
+    // Keeping both keeps self-update working through the rollout.
+    internal static bool IsAllowedHost(Uri uri, bool allowApi)
     {
-        "https://api.github.com/",
-        "https://github.com/itsnateai/",
-        // GitHub release-asset CDN. Both hosts are seen in the wild — GitHub
-        // rolled `release-assets.githubusercontent.com` alongside the legacy
-        // `objects.githubusercontent.com` and either can be the redirect target
-        // for a `github.com/.../releases/download/...` GET. Keeping both keeps
-        // self-update working through the rollout.
-        "https://objects.githubusercontent.com/",
-        "https://release-assets.githubusercontent.com/",
-    };
+        if (uri.Scheme != Uri.UriSchemeHttps) return false;
+        string host = uri.Host;
+        if (host.Equals("objects.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (host.Equals("release-assets.githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+            return uri.AbsolutePath.StartsWith($"/{GitHubRepo}/", StringComparison.OrdinalIgnoreCase);
+        if (allowApi && host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase))
+            return uri.AbsolutePath.StartsWith($"/repos/{GitHubRepo}/", StringComparison.OrdinalIgnoreCase);
+        return false;
+    }
 
     internal static bool IsAllowlisted(string? url) =>
         !string.IsNullOrEmpty(url) &&
-        UrlAllowlist.Any(prefix => url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        IsAllowedHost(uri, allowApi: true);
 
     /// <summary>
     /// Extract the hex hash for <paramref name="filename"/> from a SHA256SUMS body.
@@ -263,8 +276,8 @@ internal sealed class UpdateDialog : Form
 
     /// <summary>
     /// Issue a GET and follow up to 5 redirects manually. Every hop's URL — including
-    /// the initial one — is validated against <see cref="UrlAllowlist"/> before the
-    /// request is sent. Throws if any hop lands off-list or if the redirect chain
+    /// the initial one — is validated against <see cref="IsAllowlisted(string)"/> before
+    /// the request is sent. Throws if any hop lands off-list or if the redirect chain
     /// exceeds the hop limit.
     /// </summary>
     private static async Task<HttpResponseMessage> SendAllowlistedAsync(
@@ -273,9 +286,9 @@ internal sealed class UpdateDialog : Form
         const int maxHops = 5;
         for (int hop = 0; hop < maxHops; hop++)
         {
-            // Belt-and-suspenders: the UrlAllowlist prefixes already encode `https://`,
-            // but a future allowlist edit accidentally seeding an `http://` prefix would
-            // silently disable transport encryption. Independently enforce HTTPS here so
+            // Belt-and-suspenders: IsAllowedHost already requires Uri.Scheme == https,
+            // but a future allowlist edit accidentally accepting http would silently
+            // disable transport encryption. Independently enforce HTTPS here so
             // scheme-downgrade can never happen regardless of allowlist contents.
             if (!Uri.TryCreate(url, UriKind.Absolute, out var validatedUri) ||
                 !validatedUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase))
@@ -469,10 +482,11 @@ internal sealed class UpdateDialog : Form
 
         try
         {
-            // Validate download URL origin before fetching
-            if (!_downloadUrl!.StartsWith("https://github.com/itsnateai/", StringComparison.OrdinalIgnoreCase) &&
-                !_downloadUrl!.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase) &&
-                !_downloadUrl!.StartsWith("https://release-assets.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
+            // Validate download URL origin before fetching. Stricter than the
+            // general IsAllowlisted: api.github.com is not a release-asset host,
+            // so allowApi:false here even though the catalogue fetch needed it.
+            if (!Uri.TryCreate(_downloadUrl, UriKind.Absolute, out var dlUri) ||
+                !IsAllowedHost(dlUri, allowApi: false))
             {
                 ShowError("Update failed: download URL is not from the expected source.", _downloadUrl!);
                 return;
@@ -484,12 +498,11 @@ internal sealed class UpdateDialog : Form
             // Verify SHA256 hash if the release includes a SHA256SUMS file
             if (!string.IsNullOrEmpty(_hashFileUrl))
             {
-                // Tighten the hash-URL origin check to match _downloadUrl at line ~341.
-                // The general UrlAllowlist would also let through api.github.com paths,
-                // but a release asset must come from github.com/itsnateai/… or the CDN.
-                if (!_hashFileUrl.StartsWith("https://github.com/itsnateai/", StringComparison.OrdinalIgnoreCase) &&
-                    !_hashFileUrl.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase) &&
-                    !_hashFileUrl.StartsWith("https://release-assets.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
+                // Tighten the hash-URL origin check to match _downloadUrl above.
+                // The general IsAllowlisted would also let through api.github.com,
+                // but a release asset must come from github.com/{repo}/… or the CDN.
+                if (!Uri.TryCreate(_hashFileUrl, UriKind.Absolute, out var hashUri) ||
+                    !IsAllowedHost(hashUri, allowApi: false))
                 {
                     ShowError("Update failed: hash URL is not from the expected source.", _hashFileUrl);
                     return;
