@@ -504,6 +504,11 @@ internal sealed class UpdateDialog : Form
                 if (!Uri.TryCreate(_hashFileUrl, UriKind.Absolute, out var hashUri) ||
                     !IsAllowedHost(hashUri, allowApi: false))
                 {
+                    // Stranded `.new` cleanup. The download already wrote `newPath`
+                    // (line ~495); returning here without TryDelete leaves it on disk.
+                    // Pre-existing in the prefix-StartsWith era; preserved by the
+                    // v2.5.19 refactor, caught by v2.5.20 verifier sweep.
+                    TryDelete(newPath);
                     ShowError("Update failed: hash URL is not from the expected source.", _hashFileUrl);
                     return;
                 }

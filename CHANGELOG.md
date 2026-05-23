@@ -2,6 +2,16 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.20] — 2026-05-22
+
+### Fixed — stranded `.new` artifact when `_hashFileUrl` origin check rejects
+
+`OnActionClick`'s SHA256SUMS branch validates `_hashFileUrl` against `IsAllowedHost` before fetching. When that gate rejected, the function returned without deleting `newPath` — but the download had already completed at that point and `newPath` was on disk. Result: a stranded `MWBToggle.exe.new` next to the running exe with no UI surface to clean it up.
+
+Pre-existing in the prefix-`StartsWith` era; the v2.5.19 refactor preserved the behavior verbatim (the goal was the host-equality upgrade, not cleanup-flow changes). v2.5.20 adds the missing `TryDelete(newPath)` before the `ShowError` + `return`. Convergent verifier finding (T2 Sonnet C1 + T2 Opus G3, gap-audit round).
+
+No other behavior changed. No new tests.
+
 ## [2.5.19] — 2026-05-22
 
 ### Changed — self-update URL allowlist now host-equality (was prefix StartsWith)
