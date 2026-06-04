@@ -46,6 +46,7 @@ internal static class DiagRender
             // the design intent already). AutoScale runs in the Show pipeline.
             if (which is "all" or "about") Note(RenderForm("about", new AboutForm("#^+f", "^!c", "System", _ => { }), outDir, hi.s));
             if (which is "all" or "update") Note(RenderForm("update", new UpdateDialog(), outDir, hi.s));
+            if (which is "all" or "picker") Note(RenderForm("picker", MWBToggleApp.BuildHotkeyPickerForm("Set Primary Hotkey", "#^+f", allowUnbind: true).Form, outDir, hi.s));
 
             // OSD: once per DISTINCT panel DPI so the owner-draw dot/text offsets are
             // captured at every scale present on the host.
@@ -87,6 +88,7 @@ internal static class DiagRender
             Form f = which.Trim().ToLowerInvariant() switch
             {
                 "update" => new UpdateDialog(),
+                "picker" => MWBToggleApp.BuildHotkeyPickerForm("Set Primary Hotkey", "#^+f", allowUnbind: true).Form,
                 _        => new AboutForm("#^+f", "^!c", "System", _ => { }),
             };
             // Show the form ONLY once the message loop is actively pumping (a Timer tick

@@ -1475,20 +1475,20 @@ internal sealed class MWBToggleApp : ApplicationContext
         public bool Unbind { get; init; }
     }
 
+    // Layout-only handles returned by BuildHotkeyPickerForm — the controls PromptForHotkey wires.
+    internal readonly record struct PickerView(
+        Form Form, Label PreviewLabel, Label StatusLabel, Button SetBtn, Button? UnbindBtn, Button CancelBtn);
+
     /// <summary>
-    /// Capture a hotkey with a preview + explicit Set / Cancel buttons. Pressing a key
-    /// combo only updates the preview; it does NOT bind. The user must click Set
-    /// (or Unbind) to commit — so just opening the dialog and touching a key doesn't
-    /// clobber the existing binding.
+    /// Build the hotkey-picker dialog's layout (DPI-correct-by-construction: AutoSize layout
+    /// containers, no fixed ClientSize). Extracted so PromptForHotkey AND the DEBUG DPI render
+    /// harness build the SAME form — one source of truth, so the 150% layout is directly
+    /// verifiable. Static; uses only static helpers (HotkeyToReadable, ThemePickerButton).
+    /// The hook, validation, ShowDialog, and result wiring live in PromptForHotkey.
     /// </summary>
-    /// <param name="title">Dialog title.</param>
-    /// <param name="currentAhk">Current binding (may be empty for unbound).</param>
-    /// <param name="allowUnbind">Show an Unbind button (for optional/secondary hotkeys).</param>
-    /// <param name="collisionCheck">Returns a rejection reason, or null if the combo is OK.</param>
-    private HotkeyPickResult? PromptForHotkey(string title, string currentAhk,
-                                              bool allowUnbind, Func<string, string?> collisionCheck)
+    internal static PickerView BuildHotkeyPickerForm(string title, string currentAhk, bool allowUnbind)
     {
-        using var form = new Form
+        var form = new Form
         {
             AutoScaleDimensions = new SizeF(96F, 96F),
             AutoScaleMode = AutoScaleMode.Dpi,
@@ -1568,9 +1568,6 @@ internal sealed class MWBToggleApp : ApplicationContext
         };
         root.Controls.Add(statusLabel);
 
-        string? previewAhk = null; // null until user presses a valid combo
-        bool previewOk = false;    // validated (CanRegister + collisionCheck)
-
         // Button row: Unbind | Set | Cancel (or Set | Cancel) centered in a FlowLayoutPanel —
         // the flow auto-spaces them at any DPI, replacing the old absolute btnX() positioning.
         var buttonRow = new FlowLayoutPanel
@@ -1615,6 +1612,36 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         form.CancelButton = cancelBtn;
         form.AcceptButton = setBtn;
+
+        return new PickerView(form, previewLabel, statusLabel, setBtn, unbindBtn, cancelBtn);
+    }
+
+    /// <summary>
+    /// Capture a hotkey with a preview + explicit Set / Cancel buttons. Pressing a key
+    /// combo only updates the preview; it does NOT bind. The user must click Set
+    /// (or Unbind) to commit — so just opening the dialog and touching a key doesn't
+    /// clobber the existing binding.
+    /// </summary>
+    /// <param name="title">Dialog title.</param>
+    /// <param name="currentAhk">Current binding (may be empty for unbound).</param>
+    /// <param name="allowUnbind">Show an Unbind button (for optional/secondary hotkeys).</param>
+    /// <param name="collisionCheck">Returns a rejection reason, or null if the combo is OK.</param>
+    private HotkeyPickResult? PromptForHotkey(string title, string currentAhk,
+                                              bool allowUnbind, Func<string, string?> collisionCheck)
+    {
+        // Layout built by the shared static helper (one source of truth — also rendered by
+        // the DEBUG DPI harness so the 150% layout is directly verifiable). Behavior — the
+        // low-level hook, validation, and result wiring — stays here.
+        var picker = BuildHotkeyPickerForm(title, currentAhk, allowUnbind);
+        using var form = picker.Form;
+        var previewLabel = picker.PreviewLabel;
+        var statusLabel = picker.StatusLabel;
+        var setBtn = picker.SetBtn;
+        var unbindBtn = picker.UnbindBtn;
+        var cancelBtn = picker.CancelBtn;
+
+        string? previewAhk = null; // null until user presses a valid combo
+        bool previewOk = false;    // validated (CanRegister + collisionCheck)
 
         // The hook is created in form.Shown and nulled here in FormClosed, so button
         // handlers need access to it to Dispose BEFORE form.Close() — otherwise an
