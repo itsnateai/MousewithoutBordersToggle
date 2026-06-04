@@ -59,69 +59,107 @@ internal sealed class UpdateDialog : Form
         // DPI ratios; switching to Dpi aligns this dialog with the rest of the app.
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(420, 180);
+        // Size to content at any DPI via AutoSize + layout containers (the form grows to fit
+        // the font-scaled content) instead of a fixed ClientSize that a direct high-DPI launch
+        // fails to grow (fonts scale, bounds don't → clip). Layout is relational; no reliance
+        // on the dead AutoScaleMode.Dpi. See AboutForm + DpiFit + the EQSwitch CardLayout pattern.
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        Padding = new Padding(16, 14, 16, 12);
 
         _boldFont = new Font("Segoe UI", 9.5f, FontStyle.Bold);
         _italicFont = new Font("Segoe UI", 7.5f, FontStyle.Italic);
 
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            BackColor = Theme.BgColor,
+        };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
         _lblStatus = new Label
         {
             Text = "Checking GitHub for new version...",
-            Location = new Point(20, 20),
-            Size = new Size(370, 24),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             Font = _boldFont,
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
-            TextAlign = ContentAlignment.MiddleCenter
+            TextAlign = ContentAlignment.MiddleCenter,
+            Margin = new Padding(3, 0, 3, 6),
         };
-        Controls.Add(_lblStatus);
+        root.Controls.Add(_lblStatus);
 
         _lblDetail = new Label
         {
             Text = "",
-            Location = new Point(20, 48),
-            Size = new Size(370, 20),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             ForeColor = Theme.DimColor,
             BackColor = Theme.BgColor,
             Font = _italicFont,
-            TextAlign = ContentAlignment.MiddleCenter
+            TextAlign = ContentAlignment.MiddleCenter,
+            Margin = new Padding(3, 0, 3, 8),
         };
-        Controls.Add(_lblDetail);
+        root.Controls.Add(_lblDetail);
 
+        // Progress bar stretches to the dialog width (Anchor L|R fills the column the wider
+        // status label defines); its height is a Panel literal set per-DPI in OnHandleCreated.
         _progressOuter = new Panel
         {
-            Location = new Point(30, 80),
-            Size = new Size(350, 18),
+            Anchor = AnchorStyles.Left | AnchorStyles.Right,
+            Height = 18,
             BackColor = Theme.HighlightBg,
-            BorderStyle = BorderStyle.None
+            BorderStyle = BorderStyle.None,
+            Margin = new Padding(14, 4, 14, 10),
         };
         _progressFill = new Panel
         {
             Location = new Point(0, 0),
             Size = new Size(0, 18),
-            BackColor = Theme.AccentGreen
+            BackColor = Theme.AccentGreen,
         };
         _progressOuter.Controls.Add(_progressFill);
-        Controls.Add(_progressOuter);
+        root.Controls.Add(_progressOuter);
+
+        // Centered button row — whichever buttons are Visible auto-center, so the post-Show
+        // LogicalToDeviceUnits re-centering math (winget / up-to-date / error states) is gone.
+        var buttonRow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            Anchor = AnchorStyles.None,
+            WrapContents = false,
+            BackColor = Theme.BgColor,
+            Margin = new Padding(3, 2, 3, 0),
+        };
 
         _btnAction = new Button
         {
             Text = "Upgrade Now",
-            Location = new Point(155, 112),
-            Size = new Size(110, 32),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(12, 6, 12, 6),
+            Margin = new Padding(0, 0, 10, 0),
             Visible = false,
-            AccessibleName = "Download and install the latest version"
+            AccessibleName = "Download and install the latest version",
         };
         ThemeButton(_btnAction);
         _btnAction.Click += OnActionClick;
-        Controls.Add(_btnAction);
+        buttonRow.Controls.Add(_btnAction);
 
         _btnCancel = new Button
         {
             Text = "Cancel",
-            Location = new Point(295, 112),
-            Size = new Size(80, 32),
-            AccessibleName = "Cancel update check"
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(12, 6, 12, 6),
+            Margin = new Padding(0, 0, 0, 0),
+            AccessibleName = "Cancel update check",
         };
         ThemeButton(_btnCancel);
         _btnCancel.Click += (_, _) =>
@@ -131,7 +169,10 @@ internal sealed class UpdateDialog : Form
             DialogResult = DialogResult.Cancel;
             Close();
         };
-        Controls.Add(_btnCancel);
+        buttonRow.Controls.Add(_btnCancel);
+
+        root.Controls.Add(buttonRow);
+        Controls.Add(root);
 
         // Enter triggers the currently-primary action (Upgrade Now once visible, nothing
         // before that), Esc always cancels and disposes the in-flight HTTP request.
@@ -330,18 +371,7 @@ internal sealed class UpdateDialog : Form
             _lblDetail.Text = "Use: winget upgrade itsnateai.MWBToggle";
             _btnAction.Visible = false;
             _btnCancel.Text = "OK";
-            // Post-Show reassignments bypass the AutoScale walk — raw literals
-            // here render in device pixels regardless of monitor DPI, so at
-            // 125%+ the OK button stays "100%-sized" while the rest of the
-            // dialog has scaled larger. LogicalToDeviceUnits walks the design
-            // pixel through the form's current DPI to keep the button
-            // proportional. Width must be computed first so Location can
-            // centre against it.
-            int btnW = _btnCancel.LogicalToDeviceUnits(64);
-            int btnH = _btnCancel.LogicalToDeviceUnits(26);
-            _btnCancel.Size = new Size(btnW, btnH);
-            _btnCancel.Location = new Point((ClientSize.Width - btnW) / 2,
-                                            _btnCancel.LogicalToDeviceUnits(112));
+            // Centered FlowLayoutPanel auto-centers the lone OK button — no re-centering needed.
             return;
         }
 
@@ -450,16 +480,7 @@ internal sealed class UpdateDialog : Form
             _lblStatus.Text = "You're on the latest version!";
             _btnAction.Visible = false;
             _btnCancel.Text = "OK";
-            // Shrink the OK button for this acknowledgment-only state — a large
-            // Cancel-sized button makes the simple "you're up to date" popup feel
-            // heavier than it needs to be. LogicalToDeviceUnits keeps it
-            // proportional at 125%+ (see winget-managed branch above for the
-            // post-Show-bypasses-AutoScale rationale).
-            int btnW = _btnCancel.LogicalToDeviceUnits(64);
-            int btnH = _btnCancel.LogicalToDeviceUnits(26);
-            _btnCancel.Size = new Size(btnW, btnH);
-            _btnCancel.Location = new Point((ClientSize.Width - btnW) / 2,
-                                            _btnCancel.LogicalToDeviceUnits(112));
+            // Centered FlowLayoutPanel auto-centers the lone OK button.
         }
     }
 
@@ -737,12 +758,7 @@ internal sealed class UpdateDialog : Form
         _lblDetail.Text = detail;
         _btnAction.Visible = false;
         _btnCancel.Text = "OK";
-        // Centre the lone OK button at runtime device pixels — _btnCancel.Width
-        // is already AutoScale-walked from its constructor Size, and Y must be
-        // scaled from the design literal 112 to keep its position proportional
-        // at 125%+ (post-Show raw literals bypass the AutoScale walk).
-        _btnCancel.Location = new Point((ClientSize.Width - _btnCancel.Width) / 2,
-                                        _btnCancel.LogicalToDeviceUnits(112));
+        // Centered FlowLayoutPanel auto-centers the lone OK button.
     }
 
     // ─── Static Helpers (called from Program.cs) ────────────────
@@ -881,6 +897,9 @@ internal sealed class UpdateDialog : Form
     {
         base.OnHandleCreated(e);
         Theme.ApplyTitleBarMode(Handle);
+        // A Panel has no font-driven height — size the progress bar per-DPI now the handle exists.
+        _progressOuter.Height = LogicalToDeviceUnits(18);
+        _progressFill.Height = _progressOuter.Height;
     }
 
     private static void TryDelete(string path)

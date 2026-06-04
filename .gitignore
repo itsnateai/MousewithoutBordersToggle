@@ -38,6 +38,8 @@ $RECYCLE.BIN/
 *.orig
 *.rej
 .code-graph/
+_diag/
+docs/superpowers/
 
 # Workspace scaffolding — never commit (defense-in-depth, prevents leaks of internal handoffs/audit prompts)
 *_HANDOFF.md

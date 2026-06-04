@@ -2,6 +2,20 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.21] — 2026-06-04
+
+### Fixed — dialogs and the OSD now scale correctly on 125% / 150% displays
+
+On a high-DPI display the About, Update, and hotkey-picker dialogs rendered at their 100% pixel size with 150%-scaled fonts, so text overflowed its controls — the About window's "Update" button clipped to "Upda", the Theme dropdown and the update buttons truncated. The OSD pill's state dot crowded its text.
+
+Root cause: `AutoScaleMode.Dpi` does not apply the initial on-monitor scale on a direct high-DPI launch — the fonts scale via DPI rendering, but the fixed-`ClientSize` absolute-pixel layouts don't grow. This is a real WinForms behavior, independent of PerMonitorV2 vs SystemAware (both were tested). It's invisible at 100% (where development happens) and Windows Sandbox can't change display scale, so it was only caught by rendering on a real 150% display.
+
+**Rebuilt all three dialogs on layout containers.** Each form is now a `TableLayoutPanel` of `AutoSize` controls inside a form with `AutoSize = GrowAndShrink`, so it sizes to its font-scaled content — correct by construction at 100% and 150%, with no reliance on the dead AutoScale. Fixed-width fields (the About Theme combo) are sized to their content at the device DPI via a new `DpiFit.SizeFitFields` helper. The Update dialog's per-state button-recentering math is gone — a centered `FlowLayoutPanel` auto-centers whichever buttons are visible, so the rewrite is a net simplification.
+
+The OSD pill (owner-drawn) had hardcoded device-pixel dot/text offsets and pill paddings that crowded at 150%; every paint constant now routes through `LogicalToDeviceUnits` — a no-op at 100%, ×1.5 at 150%.
+
+Verified at real 150% on a Hyper-V test bed (About and Update captured live in the running app; OSD at an exact ×1.5). PerMonitorV2 retained. No behavior or appearance change at 100%. Tests unchanged (50/50).
+
 ## [2.5.20] — 2026-05-22
 
 ### Fixed — stranded `.new` artifact when `_hashFileUrl` origin check rejects

@@ -15,6 +15,30 @@ internal static class Program
     [STAThread]
     static void Main(string[] args)
     {
+#if DEBUG
+        // DEBUG-only DPI verification entry point. Renders UI surfaces to PNG (with
+        // DeviceDpi logged) so a 100% dev-host vs 150% Tiny11 diff is ground truth.
+        // Runs BEFORE the single-instance mutex so it never disturbs a live instance.
+        // Stripped entirely from Release builds.
+        {
+            int diagIdx = Array.FindIndex(args, a => string.Equals(a, "--diag-render-form", StringComparison.OrdinalIgnoreCase));
+            if (diagIdx >= 0)
+            {
+                string which = diagIdx + 1 < args.Length ? args[diagIdx + 1] : "all";
+                int outIdx = Array.FindIndex(args, a => string.Equals(a, "--out", StringComparison.OrdinalIgnoreCase));
+                string outDir = outIdx >= 0 && outIdx + 1 < args.Length ? args[outIdx + 1] : ".";
+                ApplicationConfiguration.Initialize();
+                Environment.Exit(DiagRender.Run(which, outDir));
+            }
+            int showIdx = Array.FindIndex(args, a => string.Equals(a, "--diag-show", StringComparison.OrdinalIgnoreCase));
+            if (showIdx >= 0)
+            {
+                string showWhich = showIdx + 1 < args.Length ? args[showIdx + 1] : "about";
+                ApplicationConfiguration.Initialize();
+                Environment.Exit(DiagRender.RunShow(showWhich));
+            }
+        }
+#endif
         bool isAfterUpdate = args.Contains("--after-update");
         // Theme changes also force a process restart (Theme.cs static GDI caches
         // are write-once per process). Same mutex-handoff dance as --after-update:

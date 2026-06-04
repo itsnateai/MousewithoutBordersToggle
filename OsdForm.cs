@@ -41,6 +41,14 @@ internal sealed class OsdForm : Form
     private static readonly SolidBrush s_offDotBrush = new(Theme.AccentWarn);
     private static readonly SolidBrush s_infoDotBrush = new(Theme.DimColor);
 
+#if DEBUG
+    // DEBUG-only: when set, ShowMessage anchors the pill at this point instead of the
+    // system tray, so the DPI-verification harness (DiagRender) can force the OSD onto
+    // a chosen monitor — e.g. a 150% panel on a multi-monitor host where the tray lives
+    // on the 100% primary. Compiled out of Release entirely; zero production footprint.
+    internal static Point? DiagForceTopLeft;
+#endif
+
     private const string DotChar = "\u25CF"; // ●
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -118,24 +126,28 @@ internal sealed class OsdForm : Form
             _labelSize = Size.Ceiling(labelSize);
             // Padding: left 10 · dot 12 · text · right 12. Tighter than before so the
             // pill doesn't feel oversized for the shorter phrasing we now use.
-            int w = 10 + 12 + _labelSize.Width + 12;
+            // Paddings are owner-draw geometry → device px, so scale them per-monitor
+            // (LogicalToDeviceUnits is a no-op at 100%, ×1.5 at 150%). _labelSize is
+            // already DPI-aware from MeasureString. Without this the pill keeps 96-px
+            // paddings around 150%-sized text and the dot/text crowd the left edge.
+            int w = LogicalToDeviceUnits(10) + LogicalToDeviceUnits(12) + _labelSize.Width + LogicalToDeviceUnits(12);
             // Pathological long messages would otherwise extend past the screen edge.
             // Cap to half the working-area width; overflow ellipsizes cleanly at paint.
-            int maxW = Math.Max(160, workArea.Width / 2);
+            int maxW = Math.Max(LogicalToDeviceUnits(160), workArea.Width / 2);
             if (w > maxW) w = maxW;
             // Pill height must clear the rendered text + padding at any display scale.
-            // At 100% scale 9pt Segoe UI is ~15px tall and 28px gave generous breathing
-            // room; at 175% scale it renders ~26px and the hardcoded 28 clipped
-            // descenders. Floor at 28 preserves the intended visual weight at 100%.
-            int h = Math.Max(28, _labelSize.Height + 10);
+            // _labelSize.Height is DPI-aware (measured); the floor + vertical padding are
+            // owner-draw constants, so scale them too — Math.Max(LtDU(28), measuredH +
+            // LtDU(10)) keeps the 100% visual weight and grows proportionally at 125%+.
+            int h = Math.Max(LogicalToDeviceUnits(28), _labelSize.Height + LogicalToDeviceUnits(10));
 
             // Default anchor: bottom-right corner of the working area. WorkingArea
             // already excludes the taskbar regardless of its edge (top / left / right /
             // bottom), so this is the safe fallback for every taskbar orientation.
             // Canonical positioning pattern — ported from MicMute's OsdForm
             // (the "tooltip template" standard for tray utilities).
-            int xPos = workArea.Right - w - 12;
-            int yPos = workArea.Bottom - h - 8;
+            int xPos = workArea.Right - w - LogicalToDeviceUnits(12);
+            int yPos = workArea.Bottom - h - LogicalToDeviceUnits(8);
 
             // Try precise Shell_TrayWnd anchoring; accept it only if it stays
             // inside the working area. Top / left / right taskbars put the
@@ -144,8 +156,8 @@ internal sealed class OsdForm : Form
             nint trayHwnd = FindWindow("Shell_TrayWnd", null);
             if (trayHwnd != 0 && GetWindowRect(trayHwnd, out var rect))
             {
-                int anchoredX = rect.Right - w - 12;
-                int anchoredY = rect.Top - h - 8;
+                int anchoredX = rect.Right - w - LogicalToDeviceUnits(12);
+                int anchoredY = rect.Top - h - LogicalToDeviceUnits(8);
                 if (anchoredY >= workArea.Top &&
                     anchoredX >= workArea.Left &&
                     anchoredX + w <= workArea.Right)
@@ -157,7 +169,13 @@ internal sealed class OsdForm : Form
 
             // Final safety clamp: even with the anchor/fallback logic above, a
             // pathological width + narrow screen could leave xPos past the left edge.
-            if (xPos < workArea.Left + 8) xPos = workArea.Left + 8;
+            if (xPos < workArea.Left + LogicalToDeviceUnits(8)) xPos = workArea.Left + LogicalToDeviceUnits(8);
+
+#if DEBUG
+            // DPI-verification harness override (DEBUG only) — pin the pill to a chosen
+            // monitor so it can be captured at that monitor's scale.
+            if (DiagForceTopLeft is Point dp) { xPos = dp.X; yPos = dp.Y; }
+#endif
 
             SetBounds(xPos, yPos, w, h);
         }
@@ -201,8 +219,11 @@ internal sealed class OsdForm : Form
         // previous y=5 left both glyphs top-pinned at higher scales. Use the cached
         // label height to centre regardless of current pill height.
         int textY = Math.Max(0, (ClientSize.Height - _labelSize.Height) / 2);
-        g.DrawString(DotChar, s_dotFont, dotBrush, 10, textY);
-        g.DrawString(_text, s_labelFont, s_textBrush, 24, textY);
+        // Dot + text X offsets are owner-draw geometry (device px) — scale per-monitor so
+        // the bigger 150% dot glyph doesn't collide with the text. textY already centres
+        // against the DPI-aware measured label height. No-op at 100%.
+        g.DrawString(DotChar, s_dotFont, dotBrush, LogicalToDeviceUnits(10), textY);
+        g.DrawString(_text, s_labelFont, s_textBrush, LogicalToDeviceUnits(24), textY);
     }
 
     protected override void Dispose(bool disposing)

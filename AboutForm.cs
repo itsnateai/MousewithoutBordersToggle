@@ -44,117 +44,144 @@ internal sealed class AboutForm : Form
         TopMost = true;
         BackColor = Theme.BgColor;
         ForeColor = Theme.FgColor;
-        // Pin design baseline to 96 DPI BEFORE setting AutoScaleMode so every
-        // Size/Point literal below is interpreted as 96-DPI design pixels
-        // regardless of which monitor first realizes this form.
+        // Pin design baseline to 96 DPI before AutoScaleMode. The window then
+        // SIZES ITSELF to its (font-scaled) content via AutoSize instead of a
+        // fixed ClientSize — a direct high-DPI launch fails to grow a fixed
+        // ClientSize (fonts scale, bounds don't → clipped text), so the layout
+        // is relational (TableLayoutPanel + AutoSize) and correct by construction
+        // at 100% and 150% alike. See feedback_winforms_layout_first_not_magic_numbers.
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(300, 245);
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        Padding = new Padding(12);
 
+        // ── Root vertical stack — one AutoSize column; every row sizes to content ──
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            BackColor = Theme.BgColor,
+        };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+        // Title
         var titleLabel = new Label
         {
             Text = $"MWBToggle v{MWBToggleApp.Version}",
             Font = TrackFont(new Font(Font.FontFamily, 11, FontStyle.Bold)),
-            AutoSize = false,
-            Size = new Size(280, 25),
-            Location = new Point(10, 15),
-            TextAlign = ContentAlignment.MiddleCenter,
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
+            Margin = new Padding(3, 3, 3, 8),
         };
-        Controls.Add(titleLabel);
+        root.Controls.Add(titleLabel);
 
+        // Description (two lines, centred)
         var descLabel = new Label
         {
             Text = "Toggle Mouse Without Borders\nclipboard and file sharing.",
-            AutoSize = false,
-            Size = new Size(280, 35),
-            Location = new Point(10, 45),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
+            Margin = new Padding(3, 0, 3, 10),
         };
-        Controls.Add(descLabel);
+        root.Controls.Add(descLabel);
 
-        // Hotkey rows — title (bold, dim) stacked above the key combo (regular, primary).
+        // Hotkey rows — bold dim title stacked above the regular-weight combo, both centred.
         var primaryTitle = new Label
         {
             Text = "Clipboard + File Transfer",
-            AutoSize = false,
-            Size = new Size(280, 16),
-            Location = new Point(10, 82),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             Font = TrackFont(new Font(Font.FontFamily, 8.25f, FontStyle.Bold)),
             ForeColor = Theme.DimColor,
             BackColor = Theme.BgColor,
-            TextAlign = ContentAlignment.MiddleCenter
+            Margin = new Padding(3, 0, 3, 1),
         };
-        Controls.Add(primaryTitle);
+        root.Controls.Add(primaryTitle);
 
         _primaryHotkeyLabel = new Label
         {
-            AutoSize = false,
-            Size = new Size(280, 20),
-            Location = new Point(10, 99),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             Font = TrackFont(new Font(Font.FontFamily, 9.5f)),
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
-            TextAlign = ContentAlignment.MiddleCenter
+            Margin = new Padding(3, 0, 3, 6),
         };
-        Controls.Add(_primaryHotkeyLabel);
+        root.Controls.Add(_primaryHotkeyLabel);
 
         var fileTitle = new Label
         {
             Text = "File Transfer",
-            AutoSize = false,
-            Size = new Size(280, 16),
-            Location = new Point(10, 125),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             Font = TrackFont(new Font(Font.FontFamily, 8.25f, FontStyle.Bold)),
             ForeColor = Theme.DimColor,
             BackColor = Theme.BgColor,
-            TextAlign = ContentAlignment.MiddleCenter
+            Margin = new Padding(3, 0, 3, 1),
         };
-        Controls.Add(fileTitle);
+        root.Controls.Add(fileTitle);
 
         _fileTransferHotkeyLabel = new Label
         {
-            AutoSize = false,
-            Size = new Size(280, 20),
-            Location = new Point(10, 142),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             Font = TrackFont(new Font(Font.FontFamily, 9.5f)),
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
-            TextAlign = ContentAlignment.MiddleCenter
+            Margin = new Padding(3, 0, 3, 10),
         };
-        Controls.Add(_fileTransferHotkeyLabel);
+        root.Controls.Add(_fileTransferHotkeyLabel);
 
         SetHotkeys(primaryHotkey, fileTransferHotkey);
 
-        // ── Theme dropdown (left) + Open log folder link (right) ──────────
-        // New in v2.5.17: Theme dropdown lives in About so users can pick
-        // System / Dark / Light without a separate Settings dialog. Moved
-        // "Open log folder" to the right of the same row to make room.
+        // ── Theme dropdown (left) + Open log folder link (right), one full-width row ──
+        // New in v2.5.17: Theme dropdown lives in About so users can pick System /
+        // Dark / Light without a separate Settings dialog.
+        var themeRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 3,
+            RowCount = 1,
+            BackColor = Theme.BgColor,
+            Margin = new Padding(3, 4, 3, 10),
+        };
+        themeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));     // "Theme:"
+        themeRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));     // combo
+        themeRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // link (right)
+
         var themeLabel = new Label
         {
             Text = "Theme:",
-            AutoSize = false,
-            Size = new Size(42, 18),
-            Location = new Point(10, 173),
+            AutoSize = true,
+            Anchor = AnchorStyles.Left,
             Font = TrackFont(new Font(Font.FontFamily, 8.25f)),
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
-            TextAlign = ContentAlignment.MiddleLeft,
+            Margin = new Padding(0, 3, 6, 0),
         };
-        Controls.Add(themeLabel);
+        themeRow.Controls.Add(themeLabel, 0, 0);
 
         _cboTheme = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(55, 170),
-            Size = new Size(80, 22),
+            Anchor = AnchorStyles.Left,
+            // Width sized to the longest item ("System") at the current DPI rather than a
+            // pixel literal — AutoSize isn't supported on ComboBox, so derive from the font.
             ForeColor = Theme.FgColor,
             BackColor = Theme.EditBgColor,
             FlatStyle = FlatStyle.Flat,
             Font = TrackFont(new Font(Font.FontFamily, 8.25f)),
+            Margin = new Padding(0, 0, 0, 0),
         };
         _cboTheme.Items.AddRange(new object[] { "System", "Dark", "Light" });
         int themeIdx = _cboTheme.Items.IndexOf(currentThemeMode);
@@ -176,19 +203,18 @@ internal sealed class AboutForm : Form
                 _onThemeChanged(mode);
             }
         };
-        Controls.Add(_cboTheme);
+        themeRow.Controls.Add(_cboTheme, 1, 0);
 
         var logLink = new LinkLabel
         {
             Text = "Open log folder",
-            AutoSize = false,
-            Size = new Size(145, 18),
-            Location = new Point(145, 173),
-            TextAlign = ContentAlignment.MiddleRight,
+            AutoSize = true,
+            Anchor = AnchorStyles.Right,
             LinkColor = Theme.AccentBlue,
             ActiveLinkColor = Theme.AccentBlue,
             VisitedLinkColor = Theme.AccentBlue,
             BackColor = Theme.BgColor,
+            Margin = new Padding(12, 3, 0, 0),
         };
         logLink.LinkClicked += (_, _) =>
         {
@@ -200,15 +226,30 @@ internal sealed class AboutForm : Form
                 using var _ = Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
             }
         };
-        Controls.Add(logLink);
+        themeRow.Controls.Add(logLink, 2, 0);
 
-        // ── Bottom action row: GitHub | Update | Close ────────────────────
+        root.Controls.Add(themeRow);
+
+        // ── Bottom action row: GitHub | Update | Close, centred and evenly spaced ──
+        var buttonRow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            Anchor = AnchorStyles.None,
+            WrapContents = false,
+            BackColor = Theme.BgColor,
+            Margin = new Padding(3, 0, 3, 0),
+        };
+
         var githubBtn = new Button
         {
             Text = "GitHub",
-            Size = new Size(80, 30),
-            Location = new Point(25, 200),
-            AccessibleName = "Open MWBToggle GitHub page"
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(10, 5, 10, 5),
+            Margin = new Padding(0, 0, 8, 0),
+            AccessibleName = "Open MWBToggle GitHub page",
         };
         ThemeButton(githubBtn);
         githubBtn.Click += (_, _) =>
@@ -217,14 +258,16 @@ internal sealed class AboutForm : Form
             using var _ = Process.Start(new ProcessStartInfo("https://github.com/itsnateai/MousewithoutBordersToggle")
             { UseShellExecute = true });
         };
-        Controls.Add(githubBtn);
+        buttonRow.Controls.Add(githubBtn);
 
         var updateBtn = new Button
         {
             Text = "Update",
-            Size = new Size(70, 30),
-            Location = new Point(115, 200),
-            AccessibleName = "Check for updates"
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(10, 5, 10, 5),
+            Margin = new Padding(0, 0, 8, 0),
+            AccessibleName = "Check for updates",
         };
         ThemeButton(updateBtn);
         updateBtn.Click += (_, _) =>
@@ -232,18 +275,24 @@ internal sealed class AboutForm : Form
             using var dlg = new UpdateDialog();
             dlg.ShowDialog(this);
         };
-        Controls.Add(updateBtn);
+        buttonRow.Controls.Add(updateBtn);
 
         var closeBtn = new Button
         {
             Text = "Close",
-            Size = new Size(80, 30),
-            Location = new Point(195, 200),
-            AccessibleName = "Close About dialog"
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(10, 5, 10, 5),
+            Margin = new Padding(0, 0, 0, 0),
+            AccessibleName = "Close About dialog",
         };
         ThemeButton(closeBtn);
         closeBtn.Click += (_, _) => Hide();
-        Controls.Add(closeBtn);
+        buttonRow.Controls.Add(closeBtn);
+
+        root.Controls.Add(buttonRow);
+
+        Controls.Add(root);
 
         AcceptButton = closeBtn;
         CancelButton = closeBtn;
@@ -277,6 +326,9 @@ internal sealed class AboutForm : Form
     {
         base.OnHandleCreated(e);
         Theme.ApplyTitleBarMode(Handle);
+        // The Theme ComboBox is fixed-width and AutoScale won't grow it at 150% — size it
+        // to its longest item ("System") at the device DPI. See DpiFit (EQSwitch CardLayout).
+        DpiFit.SizeFitFields(this);
     }
 
     /// <summary>

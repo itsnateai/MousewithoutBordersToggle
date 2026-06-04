@@ -1490,12 +1490,14 @@ internal sealed class MWBToggleApp : ApplicationContext
     {
         using var form = new Form
         {
-            // Pin design baseline to 96 DPI BEFORE AutoScaleMode so the
-            // ClientSize + child Size/Point literals below scale correctly on
-            // 125%+ monitors. Without this, the picker inherits the Form
-            // default AutoScaleMode.Font and clips controls on non-100% scale.
             AutoScaleDimensions = new SizeF(96F, 96F),
             AutoScaleMode = AutoScaleMode.Dpi,
+            // Size to content via AutoSize + layout containers — a fixed ClientSize doesn't
+            // grow on a direct high-DPI launch (AutoScaleMode.Dpi is dead there), clipping the
+            // 150%-font labels. Relational layout is correct at 100% and 150%. Mirrors AboutForm.
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(14, 12, 14, 12),
             Text = title,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             MaximizeBox = false,
@@ -1504,106 +1506,113 @@ internal sealed class MWBToggleApp : ApplicationContext
             TopMost = true,
             BackColor = Theme.BgColor,
             ForeColor = Theme.FgColor,
-            ClientSize = new Size(360, 170),
             KeyPreview = true
         };
-        // DWM dark titlebar must be applied AFTER handle creation but BEFORE
-        // the first NC-paint. HandleCreated fires synchronously inside ShowDialog
-        // before the form becomes visible, so wiring here is the canonical hook.
+        // DWM dark titlebar must be applied AFTER handle creation but BEFORE the first
+        // NC-paint. HandleCreated fires synchronously inside ShowDialog before the form
+        // becomes visible, so wiring here is the canonical hook.
         form.HandleCreated += (_, _) => Theme.ApplyTitleBarMode(form.Handle);
+
+        var root = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            BackColor = Theme.BgColor,
+        };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        form.Controls.Add(root);
 
         var label = new Label
         {
             Text = "Press a key combination to preview, then click Set.\n(Ctrl / Alt / Shift / Win + key)",
-            AutoSize = false,
-            Size = new Size(340, 38),
-            Location = new Point(10, 10),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
+            Margin = new Padding(3, 0, 3, 8),
         };
-        form.Controls.Add(label);
+        root.Controls.Add(label);
 
         string currentDisplay = currentAhk.Length == 0 ? "(none)" : HotkeyToReadable(currentAhk);
 
-        // On open: previewLabel shows a placeholder and statusLabel tells the user
-        // what's currently bound. Once they press a combo, previewLabel fills with
-        // that combo and statusLabel becomes a validation message (green/red).
-        // Separating the two avoids the initial duplicate where both labels showed
-        // the same "Current: X" text.
-        // Semibold preview font tracked locally so it's disposed when the
-        // `using var form` goes out of scope. Without an explicit Dispose hook,
-        // Control.Font assignment leaks the GDI handle even after the form
-        // disposes (WinForms doesn't auto-dispose Control.Font).
+        // previewLabel shows the pressed combo; statusLabel shows the current binding then a
+        // green/red validation message. Semibold preview font tracked locally and disposed on
+        // FormClosed (Control.Font leaks its GDI handle otherwise — WinForms won't auto-dispose).
         var previewFont = new Font("Segoe UI Semibold", 10f);
         var previewLabel = new Label
         {
             Text = "Preview: —",
-            AutoSize = false,
-            Size = new Size(340, 22),
-            Location = new Point(10, 55),
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             TextAlign = ContentAlignment.MiddleCenter,
             Font = previewFont,
             ForeColor = Theme.FgColor,
             BackColor = Theme.BgColor,
+            Margin = new Padding(3, 0, 3, 6),
         };
-        form.Controls.Add(previewLabel);
+        root.Controls.Add(previewLabel);
         form.FormClosed += (_, _) => previewFont.Dispose();
 
         var statusLabel = new Label
         {
-            Text = currentAhk.Length == 0 ? "" : "Current: " + currentDisplay,
-            AutoSize = false,
-            Size = new Size(340, 20),
-            Location = new Point(10, 82),
+            Text = currentAhk.Length == 0 ? " " : "Current: " + currentDisplay,
+            AutoSize = true,
+            Anchor = AnchorStyles.None,
             TextAlign = ContentAlignment.MiddleCenter,
             ForeColor = Theme.DimColor,
             BackColor = Theme.BgColor,
+            Margin = new Padding(3, 0, 3, 8),
         };
-        form.Controls.Add(statusLabel);
+        root.Controls.Add(statusLabel);
 
         string? previewAhk = null; // null until user presses a valid combo
         bool previewOk = false;    // validated (CanRegister + collisionCheck)
 
-        // Button row: evenly spread across the form width with equal left/right margins
-        // and equal inter-button gaps. Order is Unbind | Set | Cancel, or Set | Cancel
-        // when Unbind isn't offered (primary-hotkey picker).
-        const int btnW = 80;
-        const int btnY = 125;
-        int btnCount = allowUnbind ? 3 : 2;
-        int gap = (form.ClientSize.Width - btnCount * btnW) / (btnCount + 1);
-        int btnX(int i) => gap + i * (btnW + gap);
-
-        var unbindBtn = allowUnbind ? new Button
+        // Button row: Unbind | Set | Cancel (or Set | Cancel) centered in a FlowLayoutPanel —
+        // the flow auto-spaces them at any DPI, replacing the old absolute btnX() positioning.
+        var buttonRow = new FlowLayoutPanel
         {
-            Text = "Unbind",
-            Size = new Size(btnW, 28),
-            Location = new Point(btnX(0), btnY),
-            Enabled = currentAhk.Length > 0,
-            AccessibleName = "Remove the current hotkey binding"
-        } : null;
-        if (unbindBtn != null) { ThemePickerButton(unbindBtn); form.Controls.Add(unbindBtn); }
-
-        var setBtn = new Button
-        {
-            Text = "Set",
-            Size = new Size(btnW, 28),
-            Location = new Point(btnX(allowUnbind ? 1 : 0), btnY),
-            Enabled = false,
-            AccessibleName = "Commit the previewed hotkey"
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            Anchor = AnchorStyles.None,
+            WrapContents = false,
+            BackColor = Theme.BgColor,
+            Margin = new Padding(3, 2, 3, 0),
         };
+        root.Controls.Add(buttonRow);
+
+        static Button MakePickerButton(string text, string accessibleName) => new()
+        {
+            Text = text,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(12, 5, 12, 5),
+            Margin = new Padding(0, 0, 8, 0),
+            AccessibleName = accessibleName,
+        };
+
+        var unbindBtn = allowUnbind ? MakePickerButton("Unbind", "Remove the current hotkey binding") : null;
+        if (unbindBtn != null)
+        {
+            unbindBtn.Enabled = currentAhk.Length > 0;
+            ThemePickerButton(unbindBtn);
+            buttonRow.Controls.Add(unbindBtn);
+        }
+
+        var setBtn = MakePickerButton("Set", "Commit the previewed hotkey");
+        setBtn.Enabled = false;
         ThemePickerButton(setBtn);
-        form.Controls.Add(setBtn);
+        buttonRow.Controls.Add(setBtn);
 
-        var cancelBtn = new Button
-        {
-            Text = "Cancel",
-            Size = new Size(btnW, 28),
-            Location = new Point(btnX(allowUnbind ? 2 : 1), btnY),
-            AccessibleName = "Close without changing the binding"
-        };
+        var cancelBtn = MakePickerButton("Cancel", "Close without changing the binding");
+        cancelBtn.Margin = new Padding(0, 0, 0, 0); // last button — no trailing gap
         ThemePickerButton(cancelBtn);
-        form.Controls.Add(cancelBtn);
+        buttonRow.Controls.Add(cancelBtn);
+
         form.CancelButton = cancelBtn;
         form.AcceptButton = setBtn;
 
