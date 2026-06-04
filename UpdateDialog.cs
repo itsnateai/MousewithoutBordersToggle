@@ -61,8 +61,10 @@ internal sealed class UpdateDialog : Form
         AutoScaleMode = AutoScaleMode.Dpi;
         // Size to content at any DPI via AutoSize + layout containers (the form grows to fit
         // the font-scaled content) instead of a fixed ClientSize that a direct high-DPI launch
-        // fails to grow (fonts scale, bounds don't → clip). Layout is relational; no reliance
-        // on the dead AutoScaleMode.Dpi. See AboutForm + DpiFit + the EQSwitch CardLayout pattern.
+        // fails to grow (fonts scale, bounds don't → clip). The layout is relational — it does
+        // not depend on AutoScaleMode.Dpi growing the ClientSize (the part that's broken on a
+        // direct launch); LogicalToDeviceUnits still reads the device DPI for owner-set sizes.
+        // See AboutForm + DpiFit + the EQSwitch CardLayout pattern.
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(16, 14, 16, 12);
@@ -900,6 +902,9 @@ internal sealed class UpdateDialog : Form
         // A Panel has no font-driven height — size the progress bar per-DPI now the handle exists.
         _progressOuter.Height = LogicalToDeviceUnits(18);
         _progressFill.Height = _progressOuter.Height;
+        // AutoSize form grows from its top-left; re-center across the checking -> up-to-date /
+        // new-version / error state changes so the dialog stays put instead of drifting.
+        DpiFit.KeepCentered(this);
     }
 
     private static void TryDelete(string path)

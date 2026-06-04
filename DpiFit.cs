@@ -16,7 +16,8 @@ namespace MWBToggle;
 /// Ported from EQSwitch <c>UI/CardLayout.cs DpiScale.SizeFitFields</c> — the technique verified
 /// pixel-proportional at real 150%. Fields that stretch (Anchor includes Right, or Dock != None)
 /// are skipped — they already fill their cell. Call ONCE (the TextBox arm scales its design Width
-/// and is not idempotent).
+/// and is not idempotent), AFTER any ComboBox is populated: an empty ComboBox (no items at call
+/// time) is left at its design width and would clip at 150% if its items are filled later.
 /// </summary>
 internal static class DpiFit
 {
@@ -54,5 +55,25 @@ internal static class DpiFit
             if (c is not (NumericUpDown or ComboBox or TextBox))
                 SizeFitFields(c);
         }
+    }
+
+    /// <summary>
+    /// Keep an AutoSize dialog centered on its current screen as its content (and therefore
+    /// size) changes after it's shown. AutoSize forms resize from their top-left, so a
+    /// CenterScreen dialog drifts off-center when state changes (e.g. Update's checking→result
+    /// transition, a picker keypress growing the status line). Re-centers on each size change
+    /// once the form is visible — the initial CenterScreen placement stays the form's own.
+    /// Setting Location does not raise SizeChanged, so this can't recurse.
+    /// </summary>
+    public static void KeepCentered(Form form)
+    {
+        form.SizeChanged += (_, _) =>
+        {
+            if (!form.Visible || !form.IsHandleCreated) return;
+            var wa = Screen.FromControl(form).WorkingArea;
+            form.Location = new Point(
+                wa.X + Math.Max(0, (wa.Width - form.Width) / 2),
+                wa.Y + Math.Max(0, (wa.Height - form.Height) / 2));
+        };
     }
 }

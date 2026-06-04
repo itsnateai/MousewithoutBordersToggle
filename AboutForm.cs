@@ -329,6 +329,9 @@ internal sealed class AboutForm : Form
         // The Theme ComboBox is fixed-width and AutoScale won't grow it at 150% — size it
         // to its longest item ("System") at the device DPI. See DpiFit (EQSwitch CardLayout).
         DpiFit.SizeFitFields(this);
+        // AutoSize form grows from its top-left; re-center if SetHotkeys changes the label
+        // widths on a cached re-show so the dialog doesn't drift off-centre.
+        DpiFit.KeepCentered(this);
     }
 
     /// <summary>

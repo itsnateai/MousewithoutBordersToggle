@@ -1492,8 +1492,8 @@ internal sealed class MWBToggleApp : ApplicationContext
         {
             AutoScaleDimensions = new SizeF(96F, 96F),
             AutoScaleMode = AutoScaleMode.Dpi,
-            // Size to content via AutoSize + layout containers — a fixed ClientSize doesn't
-            // grow on a direct high-DPI launch (AutoScaleMode.Dpi is dead there), clipping the
+            // Size to content via AutoSize + layout containers — a fixed ClientSize doesn't grow
+            // on a direct high-DPI launch (AutoScaleMode.Dpi doesn't scale it there), clipping the
             // 150%-font labels. Relational layout is correct at 100% and 150%. Mirrors AboutForm.
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
@@ -1612,6 +1612,9 @@ internal sealed class MWBToggleApp : ApplicationContext
 
         form.CancelButton = cancelBtn;
         form.AcceptButton = setBtn;
+        // AutoSize form grows from its top-left; re-center as the status line grows on the
+        // first keypress so the dialog stays put.
+        DpiFit.KeepCentered(form);
 
         return new PickerView(form, previewLabel, statusLabel, setBtn, unbindBtn, cancelBtn);
     }

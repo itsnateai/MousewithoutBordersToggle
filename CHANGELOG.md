@@ -2,6 +2,14 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.22] — 2026-06-04
+
+### Fixed — DPI dialogs stay centered as they resize between states
+
+Fast-follow to v2.5.21 (post-ship review polish). The rebuilt About / Update / hotkey-picker dialogs are `AutoSize` (they grow to fit font-scaled content), and AutoSize forms resize from their top-left — so a dialog could drift slightly off-center when its content changed between states (the Update dialog's "Checking…" → result transition, or the picker's status line growing on the first keypress). A new `DpiFit.KeepCentered` re-centers each dialog on its screen whenever its size changes after it's shown (setting `Location` doesn't raise `SizeChanged`, so it can't recurse).
+
+Also tightened a code comment (the layout is independent of `AutoScaleMode.Dpi` *growing the ClientSize* — the part that's broken on a direct high-DPI launch — but `LogicalToDeviceUnits` still reads the device DPI) and documented `DpiFit.SizeFitFields`'s contract (call after a ComboBox is populated). No user-facing change beyond the centering. Build 0/0, tests 50/50, render dimensions unchanged.
+
 ## [2.5.21] — 2026-06-04
 
 ### Fixed — dialogs and the OSD now scale correctly on 125% / 150% displays
