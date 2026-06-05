@@ -102,6 +102,11 @@ internal sealed class MWBToggleApp : ApplicationContext
     // the app remains operable via the tray icon and menu items.
     private GlobalHotkey? _globalHotkey;
     private GlobalHotkey? _fileTransferGlobalHotkey;
+    // True while a hotkey picker is open. One picker at a time: on the About path
+    // ShowDialog(owner) already disables the owner, but the tray-menu path has no
+    // owner window to disable, so a fast re-invoke could stack a second picker (two
+    // LL keyboard hooks then fight over the same capture). Single UI thread → plain bool.
+    private bool _pickerOpen;
     // Hotkey submenu uses two rows per binding: a clickable title + a disabled
     // greyed subtitle showing the current key combo. We hold the subtitles so
     // RefreshHotkeyLabels can update them from anywhere the hotkey changes.
@@ -1630,8 +1635,13 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// <param name="allowUnbind">Show an Unbind button (for optional/secondary hotkeys).</param>
     /// <param name="collisionCheck">Returns a rejection reason, or null if the combo is OK.</param>
     private HotkeyPickResult? PromptForHotkey(string title, string currentAhk,
-                                              bool allowUnbind, Func<string, string?> collisionCheck)
+                                              bool allowUnbind, Func<string, string?> collisionCheck,
+                                              IWin32Window? owner = null)
     {
+        // One picker at a time (re-entrancy latch). The About path is already covered by
+        // ShowDialog(owner) disabling the owner; this also closes the tray-menu path, where
+        // owner is null so nothing is disabled — a second invocation is dropped, not stacked.
+        if (_pickerOpen) return null;
         // Layout built by the shared static helper (one source of truth — also rendered by
         // the DEBUG DPI harness so the 150% layout is directly verifiable). Behavior — the
         // low-level hook, validation, and result wiring — stays here.
@@ -1793,7 +1803,15 @@ internal sealed class MWBToggleApp : ApplicationContext
             e.SuppressKeyPress = true;
         };
 
-        form.ShowDialog();
+        // Own the modal to the caller (the About window, when invoked from its hotkey
+        // fields) so WinForms disables the owner for the picker's lifetime — that is what
+        // stops a second field-click from stacking a second picker (two LL hooks would then
+        // fight over the same combo capture) — and it establishes a structural owner→owned
+        // z-order so the picker always renders above the owner. owner is null on the tray-menu
+        // path (the submenu has already closed); ShowDialog then falls back to the active window.
+        _pickerOpen = true;                       // latched only across the modal pump window
+        try { form.ShowDialog(owner); }
+        finally { _pickerOpen = false; }
         return result;
     }
 
@@ -1803,9 +1821,12 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// </summary>
     private void ChangeHotkey()
     {
+        // Own the picker to the About window when it's the visible caller (its hotkey field
+        // was clicked) so the modal disables it and layers above it — see PromptForHotkey.
+        IWin32Window? owner = _aboutForm is { IsDisposed: false, Visible: true } ? _aboutForm : null;
         // Primary can't collide with itself; return null = no collision.
         var pick = PromptForHotkey("Set Hotkey (Toggle Sharing)", _hotkey, allowUnbind: true,
-            _ => null);
+            _ => null, owner);
         if (pick == null) return;
 
         if (pick.Unbind)
@@ -1967,11 +1988,14 @@ internal sealed class MWBToggleApp : ApplicationContext
     /// </summary>
     private void ChangeFileTransferHotkey()
     {
+        // Own the picker to the About window when it's the visible caller — see PromptForHotkey.
+        IWin32Window? owner = _aboutForm is { IsDisposed: false, Visible: true } ? _aboutForm : null;
         var pick = PromptForHotkey("Set File Transfer Hotkey", _fileTransferHotkey,
             allowUnbind: true,
             ahk => string.Equals(ahk, _hotkey, StringComparison.OrdinalIgnoreCase)
                    ? "Already used by the main toggle hotkey."
-                   : null);
+                   : null,
+            owner);
 
         if (pick == null) return; // cancelled
 

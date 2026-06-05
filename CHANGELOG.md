@@ -2,6 +2,14 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.24] — 2026-06-04
+
+### Fixed — hotkey picker now opens *owned* by the About window (re-entrancy + z-order hardening)
+
+Fast-follow to v2.5.23's About-window hotkey editors. The picker was shown with `form.ShowDialog()` (no owner) while the About window temporarily dropped its always-on-top — a probabilistic z-order guarantee, and it left the About window interactive during the modal, so a second hotkey-field click could stack a second picker (two low-level keyboard hooks then fighting over the same capture).
+
+Now the picker is shown *owned* by the About window when invoked from its fields (`ShowDialog(owner)`), so Windows disables the owner for the modal's lifetime and renders the picker above it — structural, not probabilistic. The manual top-most juggling is gone. A one-picker-at-a-time latch in `PromptForHotkey` additionally closes the same re-entrancy on the tray-menu path (where there is no owner window to disable). No behavior change at 100% or 150%. Build 0/0, tests 50/50.
+
 ## [2.5.23] — 2026-06-04
 
 ### Added — set both hotkeys directly from the About window

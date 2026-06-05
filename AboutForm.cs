@@ -334,17 +334,11 @@ internal sealed class AboutForm : Form
         b.FlatAppearance.BorderSize = 1;
         b.FlatAppearance.MouseOverBackColor = Theme.HighlightBg;
         b.FlatAppearance.MouseDownBackColor = Theme.EditBgColor;
-        b.Click += (_, _) =>
-        {
-            // The picker is itself TopMost + app-modal. This About dialog is ALSO
-            // TopMost; two TopMost windows race for z-order, so drop ours for the
-            // duration of the (blocking) picker and restore it after — guarantees
-            // the picker sits above us regardless of activation timing.
-            bool wasTop = TopMost;
-            TopMost = false;
-            try { onClick(); }
-            finally { TopMost = wasTop; }
-        };
+        // onClick routes to ChangeHotkey/ChangeFileTransferHotkey, which show the picker
+        // *owned by this window* — WinForms then disables this dialog for the modal's
+        // duration (so a second field-click can't stack a second picker) and renders the
+        // picker above it. No manual TopMost juggling needed; owner z-order is structural.
+        b.Click += (_, _) => onClick();
         return b;
     }
 
