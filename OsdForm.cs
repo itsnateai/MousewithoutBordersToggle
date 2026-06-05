@@ -79,8 +79,8 @@ internal sealed class OsdForm : Form
         // Pin design baseline to 96 DPI BEFORE setting AutoScaleMode. SetBounds()
         // below bypasses the AutoScale walk for the form chrome itself (we
         // compute the pill dimensions imperatively from the measured text),
-        // but the pin is canonical per _.claude/_templates/snippets/csharp/winforms-dpi-scaling.md
-        // and prevents any child controls (none today, but future-proof) from
+        // but the pin is the canonical 96-DPI WinForms baseline and prevents
+        // any child controls (none today, but future-proof) from
         // double-scaling on 125%+ monitors.
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
