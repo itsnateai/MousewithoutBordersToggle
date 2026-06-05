@@ -44,7 +44,7 @@ internal static class DiagRender
 
             // Dialogs: render on the highest-DPI panel (that's where bugs hide; 100% is
             // the design intent already). AutoScale runs in the Show pipeline.
-            if (which is "all" or "about") Note(RenderForm("about", new AboutForm("#^+f", "^!c", "System", _ => { }), outDir, hi.s));
+            if (which is "all" or "about") Note(RenderForm("about", new AboutForm("#^+f", "!m", "System", _ => { }, () => { }, () => { }), outDir, hi.s));
             if (which is "all" or "update") Note(RenderForm("update", new UpdateDialog(), outDir, hi.s));
             if (which is "all" or "picker") Note(RenderForm("picker", MWBToggleApp.BuildHotkeyPickerForm("Set Primary Hotkey", "#^+f", allowUnbind: true).Form, outDir, hi.s));
 
@@ -89,7 +89,7 @@ internal static class DiagRender
             {
                 "update" => new UpdateDialog(),
                 "picker" => MWBToggleApp.BuildHotkeyPickerForm("Set Primary Hotkey", "#^+f", allowUnbind: true).Form,
-                _        => new AboutForm("#^+f", "^!c", "System", _ => { }),
+                _        => new AboutForm("#^+f", "!m", "System", _ => { }, () => { }, () => { }),
             };
             // Show the form ONLY once the message loop is actively pumping (a Timer tick
             // fires from inside Application.Run), so PerMonitorV2's initial AutoScale runs

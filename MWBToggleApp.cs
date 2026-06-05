@@ -177,7 +177,7 @@ internal sealed class MWBToggleApp : ApplicationContext
         // Title bar — click opens About
         var titleItem = new ToolStripMenuItem($"MWBToggle v{Version}", null, (_, _) => ShowAbout());
         titleItem.Font = new Font(titleItem.Font, FontStyle.Bold);
-        titleItem.ToolTipText = "About MWBToggle";
+        titleItem.ToolTipText = "Click for MWBToggle Settings";
         _menu.Items.Add(titleItem);
         _menu.Items.Add(new ToolStripSeparator());
 
@@ -1955,6 +1955,11 @@ internal sealed class MWBToggleApp : ApplicationContext
             _fileTransferHotkeySubtitle.Text = string.IsNullOrEmpty(_fileTransferHotkey)
                 ? "(none)"
                 : HotkeyToReadable(_fileTransferHotkey);
+        // Keep the About window's click-to-edit hotkey fields in sync when a rebind
+        // happens while it's open — this method is the single source of truth for
+        // hotkey-label updates, so the open dialog refreshes for free.
+        if (_aboutForm != null && !_aboutForm.IsDisposed)
+            _aboutForm.SetHotkeys(_hotkey, _fileTransferHotkey);
     }
 
     /// <summary>
@@ -2258,7 +2263,8 @@ internal sealed class MWBToggleApp : ApplicationContext
             _aboutForm.Show();
             return;
         }
-        _aboutForm = new AboutForm(_hotkey, _fileTransferHotkey, _themeMode, ApplyThemeMode);
+        _aboutForm = new AboutForm(_hotkey, _fileTransferHotkey, _themeMode, ApplyThemeMode,
+            ChangeHotkey, ChangeFileTransferHotkey);
         _aboutForm.Show();
     }
 

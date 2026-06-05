@@ -13,10 +13,17 @@ namespace MWBToggle;
 /// </summary>
 internal sealed class AboutForm : Form
 {
-    private readonly Label _primaryHotkeyLabel;
-    private readonly Label _fileTransferHotkeyLabel;
+    private readonly Button _primaryHotkeyField;
+    private readonly Button _fileTransferHotkeyField;
     private readonly ComboBox _cboTheme;
     private readonly Action<string> _onThemeChanged;
+    private readonly Action _onEditPrimaryHotkey;
+    private readonly Action _onEditFileTransferHotkey;
+    private readonly Button _closeBtn;
+    // Hover hint on the two click-to-edit hotkey fields. Disposed explicitly — a
+    // ToolTip is a Component, not a child Control, so the base Form.Dispose sweep
+    // of the Controls collection never releases it.
+    private readonly ToolTip _hotkeyFieldTip = new();
     // Live snapshot of the theme mode the dropdown is currently showing. Used
     // by the SelectionChangeCommitted lambda to detect "real" changes. Updated
     // both by the user's pick AND by SetThemeMode() on form re-show — so the
@@ -31,9 +38,12 @@ internal sealed class AboutForm : Form
     private readonly List<Font> _ownedFonts = new();
 
     public AboutForm(string primaryHotkey, string fileTransferHotkey,
-        string currentThemeMode, Action<string> onThemeChanged)
+        string currentThemeMode, Action<string> onThemeChanged,
+        Action onEditPrimaryHotkey, Action onEditFileTransferHotkey)
     {
         _onThemeChanged = onThemeChanged;
+        _onEditPrimaryHotkey = onEditPrimaryHotkey;
+        _onEditFileTransferHotkey = onEditFileTransferHotkey;
         _currentThemeMode = currentThemeMode;
 
         Text = $"MWBToggle v{MWBToggleApp.Version} — About";
@@ -106,16 +116,9 @@ internal sealed class AboutForm : Form
         };
         root.Controls.Add(primaryTitle);
 
-        _primaryHotkeyLabel = new Label
-        {
-            AutoSize = true,
-            Anchor = AnchorStyles.None,
-            Font = TrackFont(new Font(Font.FontFamily, 9.5f)),
-            ForeColor = Theme.FgColor,
-            BackColor = Theme.BgColor,
-            Margin = new Padding(3, 0, 3, 6),
-        };
-        root.Controls.Add(_primaryHotkeyLabel);
+        _primaryHotkeyField = MakeHotkeyField(new Padding(3, 0, 3, 6), () => _onEditPrimaryHotkey());
+        _hotkeyFieldTip.SetToolTip(_primaryHotkeyField, "Click to change");
+        root.Controls.Add(_primaryHotkeyField);
 
         var fileTitle = new Label
         {
@@ -129,16 +132,9 @@ internal sealed class AboutForm : Form
         };
         root.Controls.Add(fileTitle);
 
-        _fileTransferHotkeyLabel = new Label
-        {
-            AutoSize = true,
-            Anchor = AnchorStyles.None,
-            Font = TrackFont(new Font(Font.FontFamily, 9.5f)),
-            ForeColor = Theme.FgColor,
-            BackColor = Theme.BgColor,
-            Margin = new Padding(3, 0, 3, 10),
-        };
-        root.Controls.Add(_fileTransferHotkeyLabel);
+        _fileTransferHotkeyField = MakeHotkeyField(new Padding(3, 0, 3, 10), () => _onEditFileTransferHotkey());
+        _hotkeyFieldTip.SetToolTip(_fileTransferHotkeyField, "Click to change");
+        root.Controls.Add(_fileTransferHotkeyField);
 
         SetHotkeys(primaryHotkey, fileTransferHotkey);
 
@@ -289,6 +285,7 @@ internal sealed class AboutForm : Form
         ThemeButton(closeBtn);
         closeBtn.Click += (_, _) => Hide();
         buttonRow.Controls.Add(closeBtn);
+        _closeBtn = closeBtn;
 
         root.Controls.Add(buttonRow);
 
@@ -307,6 +304,48 @@ internal sealed class AboutForm : Form
     {
         _ownedFonts.Add(font);
         return font;
+    }
+
+    /// <summary>
+    /// Build a click-to-edit hotkey field: a flat, edit-field-styled button showing
+    /// the current combo that opens the hotkey picker on click. Styled to match the
+    /// Theme combo (EditBg fill + divider border) so it reads as an editable field,
+    /// not a command button. AutoSize so it scales with the font at 150% DPI (the
+    /// whole form is layout-first — see feedback_winforms_layout_first_not_magic_numbers).
+    /// </summary>
+    private Button MakeHotkeyField(Padding margin, Action onClick)
+    {
+        var b = new Button
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Anchor = AnchorStyles.None,
+            Font = TrackFont(new Font(Font.FontFamily, 9.5f)),
+            ForeColor = Theme.FgColor,
+            BackColor = Theme.EditBgColor,
+            FlatStyle = FlatStyle.Flat,
+            Cursor = Cursors.Hand,
+            UseVisualStyleBackColor = false,
+            Padding = new Padding(10, 4, 10, 4),
+            Margin = margin,
+            AccessibleName = "Change hotkey",
+        };
+        b.FlatAppearance.BorderColor = Theme.DividerColor;
+        b.FlatAppearance.BorderSize = 1;
+        b.FlatAppearance.MouseOverBackColor = Theme.HighlightBg;
+        b.FlatAppearance.MouseDownBackColor = Theme.EditBgColor;
+        b.Click += (_, _) =>
+        {
+            // The picker is itself TopMost + app-modal. This About dialog is ALSO
+            // TopMost; two TopMost windows race for z-order, so drop ours for the
+            // duration of the (blocking) picker and restore it after — guarantees
+            // the picker sits above us regardless of activation timing.
+            bool wasTop = TopMost;
+            TopMost = false;
+            try { onClick(); }
+            finally { TopMost = wasTop; }
+        };
+        return b;
     }
 
     private static void ThemeButton(Button btn)
@@ -332,6 +371,10 @@ internal sealed class AboutForm : Form
         // AutoSize form grows from its top-left; re-center if SetHotkeys changes the label
         // widths on a cached re-show so the dialog doesn't drift off-centre.
         DpiFit.KeepCentered(this);
+        // Open with focus on Close, not the first hotkey field — the dialog reads as
+        // informational, and a focused edit-styled field would otherwise show a
+        // capture-armed focus cue the moment it opens.
+        ActiveControl = _closeBtn;
     }
 
     /// <summary>
@@ -341,12 +384,16 @@ internal sealed class AboutForm : Form
     /// </summary>
     public void SetHotkeys(string primaryHotkey, string fileTransferHotkey)
     {
-        _primaryHotkeyLabel.Text = string.IsNullOrEmpty(primaryHotkey)
+        _primaryHotkeyField.Text = string.IsNullOrEmpty(primaryHotkey)
             ? "(none)"
             : MWBToggleApp.HotkeyToReadable(primaryHotkey);
-        _fileTransferHotkeyLabel.Text = string.IsNullOrEmpty(fileTransferHotkey)
+        _fileTransferHotkeyField.Text = string.IsNullOrEmpty(fileTransferHotkey)
             ? "(none)"
             : MWBToggleApp.HotkeyToReadable(fileTransferHotkey);
+        // A rebind via the picker changes the field width; if the form is already
+        // on-screen (AutoSize grows from the top-left), re-center so it doesn't drift.
+        if (IsHandleCreated && Visible)
+            DpiFit.KeepCentered(this);
     }
 
     /// <summary>
@@ -371,9 +418,12 @@ internal sealed class AboutForm : Form
     {
         if (disposing)
         {
+            // ToolTip is a Component, not a child Control — release it explicitly
+            // (the base Form.Dispose only sweeps the Controls collection).
+            _hotkeyFieldTip.Dispose();
             // Release every Font allocated in the ctor (titleLabel bold, two
-            // hotkey-row title fonts, two hotkey-value fonts, themeLabel font,
-            // cbo font). The form is cached for process lifetime via
+            // hotkey-row title fonts, two hotkey-field value fonts, themeLabel
+            // font, cbo font). The form is cached for process lifetime via
             // Hide-on-close — without this, every Font's GDI handle stays
             // allocated until the process exits, regardless of how many forms
             // were created. Each handle survives a theme-restart respawn

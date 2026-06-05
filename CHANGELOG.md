@@ -2,6 +2,16 @@
 
 *LTR — Long-Term Release · one-click self-update built in.*
 
+## [2.5.23] — 2026-06-04
+
+### Added — set both hotkeys directly from the About window
+
+The two hotkey rows in the About window (the **Clipboard + File Transfer** combo and the **File Transfer** combo) are no longer read-only labels — each is now a click-to-edit field that opens the same hotkey picker the tray **Hotkeys** submenu uses. Click the box, press a new combo, done. The window's title-bar tooltip in the tray menu now reads "Click for MWBToggle Settings" to match.
+
+Deliberately built on the existing change pipeline rather than a new one: clicking a field routes through the same `ChangeHotkey` / `ChangeFileTransferHotkey` methods the tray menu already calls, so every guard comes along for free — the primary↔file collision unbind, the `RegisterHotKey` race-failure rollback, the Windows-reserved-combo rejection (Win+L, Win+D, …), and the empty-string-means-unbind handling that sidesteps `GlobalHotkey`'s Win+Ctrl+Shift+F fallback. A rebind made while the window is open refreshes its fields live (the existing single-source-of-truth `RefreshHotkeyLabels` now also updates the open About form). The picker — itself `TopMost` and app-modal — reliably layers above the `TopMost` About window because the window drops its own always-on-top for the picker's duration and restores it after.
+
+The new fields are `AutoSize` flat buttons styled like the Theme dropdown's editable field, so they scale by construction at high DPI — verified live at real 150% on the Hyper-V test bed. Build 0/0, tests 50/50.
+
 ## [2.5.22] — 2026-06-04
 
 ### Fixed — DPI dialogs stay centered as they resize between states
